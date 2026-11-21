@@ -91,6 +91,17 @@
   .ctr:last-child { border-bottom: 0; }
   .ctr img { width: 50px; height: 36px; border-radius: 6px; object-fit: cover; background: #000; flex-shrink: 0; }
   .ctr .why { margin-top: 2px; }
+  .bal { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid rgba(127,127,127,.12); }
+  .bal:last-of-type { border-bottom: 0; }
+  .bal img { width: 50px; height: 36px; border-radius: 6px; object-fit: cover; background: #000; flex-shrink: 0; }
+  .bal .bt { min-width: 0; }
+  .bal .tm { font-size: 12px; color: var(--hint); font-weight: 400; }
+  .bal .tag { font-size: 12px; margin-top: 2px; line-height: 1.3; }
+  .bal .tp { color: var(--hint); }
+  .bal .tc { color: var(--bad); }
+  .build .legend { margin-top: 10px; font-size: 11px; }
+  details.alt { margin-top: 10px; }
+  details.alt > .build { margin-top: 8px; }
   details.pro-items { margin-top: 18px; }
   details.pro-items summary { cursor: pointer; padding: 12px; border-radius: var(--radius); background: var(--card);
     font-weight: 600; font-size: 14px; list-style: none; }
@@ -744,6 +755,80 @@ function coreVariants(pop, pub, counters, used, byKey) {
   };
 }
 
+/* ---- итоговый билд: про + предметы под драфт, вперемешку и по времени покупки ---- */
+// грубая оценка, к какой минуте позиция накопит на предмет (если нет данных паблика)
+const GPM_BY_POS = [620, 580, 470, 340, 300];
+const estMinute = (it, p) => Math.round(6 + (it.cost || 0) / GPM_BY_POS[p] * 1.6);
+
+function balancedBuild(p, h, pop, pubAll, counters, spam, byKey) {
+  const parts = new Set(Object.values(ITEMS).flatMap(it => it.components || []));
+  const finished = it => it && (!parts.has(it.key) || CORE_OK_PARTS.has(it.key));
+  const reasonsOf = new Map(counters.map(c => [c.key, c.reasons]));
+
+  // --- ранняя игра: сапоги и предметы про + дешёвое, что требует драфт
+  const bootCount = {};
+  for (const st of ["early_game_items", "mid_game_items"])
+    for (const { it, n } of proRows(pop[st])) if (BOOT_KEYS.includes(it.key)) bootCount[it.key] = (bootCount[it.key] || 0) + n;
+  const bootKeys = Object.keys(bootCount).sort((a, b) => bootCount[b] - bootCount[a]);
+  const topBoot = bootKeys.find(k => k !== "boots") || bootKeys[0];
+  // доля среди «улучшенных» сапог (простые Boots of Speed — это промежуточный шаг)
+  const bootsTotal = bootKeys.filter(k => topBoot === "boots" || k !== "boots").reduce((s, k) => s + bootCount[k], 0) || 1;
+  const earlyRows = proRows(pop.early_game_items);
+  const early = new Map();
+  const addE = (k, pro, why) => {
+    if (!byKey[k]) return;
+    const e = early.get(k) || { key: k, pro: null, why: [] };
+    if (pro) e.pro = pro;
+    if (why) e.why.push(why);
+    early.set(k, e);
+  };
+  if (topBoot) addE(topBoot, `${Math.round(bootCount[topBoot] / bootsTotal * 100)}% про берут эти сапоги`);
+  // в раннюю игру — только собранные предметы и несколько самостоятельных (Bottle, Wind Lace…), без частей вроде Javelin
+  const STANDALONE_EARLY = new Set(["bottle", "wind_lace", "infused_raindrop", "blight_stone", "orb_of_venom", "magic_stick"]);
+  earlyRows.filter(r => !BOOT_KEYS.includes(r.it.key) && !LANE_BASICS.has(r.it.key) && finished(r.it) &&
+      ((r.it.components || []).length || STANDALONE_EARLY.has(r.it.key)) &&
+      !CONSUMABLES.has(r.it.key) && (r.it.cost || 0) >= 400 && (r.it.cost || 0) <= 2500)
+    .slice(0, 2).forEach(r => addE(r.it.key, `частый ранний предмет у про`));
+  if (spam.length) addE("magic_wand", null, `часто кастуют: ${spam.join(", ")}`);
+  for (const c of counters) if (byKey[c.key] && (byKey[c.key].cost || 0) < 1500) c.reasons.forEach(r => addE(c.key, null, r));
+
+  // --- основа: чередуем предметы про и предметы против драфта (примерно поровну), 6 слотов
+  const pro = {};
+  for (const st of ["mid_game_items", "late_game_items"])
+    for (const { it, n } of proRows(pop[st]))
+      if (it && (it.cost || 0) >= 2000 && finished(it) && !CONSUMABLES.has(it.key) && !/boots|treads|travel|greaves/.test(it.key))
+        pro[it.key] = (pro[it.key] || 0) + n;
+  const proTop = Object.keys(pro).sort((a, b) => pro[b] - pro[a]).filter(k => !early.has(k));
+  const ctrTop = counters.map(c => c.key).filter(k => byKey[k] && (byKey[k].cost || 0) >= 1500 && !early.has(k)).slice(0, 3);
+  const order = [];
+  for (let i = 0; order.length < 8 && (i < proTop.length || i < ctrTop.length); i++) {
+    for (const k of [proTop[i], ctrTop[i]]) if (k && !order.includes(k)) order.push(k);
+  }
+  // не держим рядом предмет и его улучшение (Blink + Swift Blink)
+  const core = order.filter((k, _, all) => !all.some(o => ((byKey[o] || {}).components || []).includes(k))).slice(0, 6)
+    .map(k => {
+      const s = pubAll[k];
+      const known = s && s.g >= 20;
+      return {
+        key: k,
+        t: known ? s.t : estMinute(byKey[k], p), tKnown: known,
+        pro: pro[k] ? `про: в ${fmt(pro[k])} играх` + (known ? ` · паблик: ${s.wr.toFixed(0)}% побед` : "") : null,
+        why: reasonsOf.get(k) || [],
+      };
+    }).sort((a, b) => a.t - b.t);
+  return { early: [...early.values()], core };
+}
+
+function balRowsHTML(rows, byKey, showTime) {
+  return rows.map(r => {
+    const it = byKey[r.key];
+    return `<div class="bal"><img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">
+      <div class="bt"><b>${esc(it.dname)}</b>${showTime ? ` <span class="tm">${r.tKnown ? "~" : "≈"}${Math.round(r.t)} мин</span>` : ""}
+        ${r.pro ? `<div class="tag tp">🏆 ${esc(r.pro)}</div>` : ""}
+        ${r.why.map(w => `<div class="tag tc">🎯 ${esc(w)}</div>`).join("")}</div></div>`;
+  }).join("");
+}
+
 function draftBuildHTML(h, pop, timings) {
   const byKey = ITEM_BY_KEY();
   const myFits = fitsPosition(h, draft.me);
@@ -761,25 +846,31 @@ function draftBuildHTML(h, pop, timings) {
   const varsHTML = (vs, subs) => vs.map(v => `<div class="var"><div class="vl">${v.label}${v.note ? ` <span>· ${esc(v.note)}</span>` : ""}</div>
     ${buildItemsHTML(v.items, byKey, subs)}</div>`).join("");
 
-  const counters = enemies.length
-    ? (list.length ? list.map(x => {
-        const it = byKey[x.key];
-        return `<div class="ctr"><img loading="lazy" src="${it && it.img ? CDN + it.img : ""}" alt="">
-          <div><b>${esc(it ? it.dname : x.key)}</b><div class="why">${x.reasons.map(esc).join("<br>")}</div></div></div>`;
-      }).join("") : `<div class="muted">Против этих врагов ничего особого не нужно — собирай основу.</div>`)
-    : `<div class="muted">Добавь врагов в драфте — подберу предметы против них.</div>`;
+  const bal = balancedBuild(p, h, pop, pubStats(timings), list, spam, byKey);
+  const draftNote = !enemies.length
+    ? `<div class="why">Добавь врагов в драфте — добавлю в билд предметы против них (🎯).</div>`
+    : !list.length ? `<div class="why">Против этих врагов ничего особого не нужно — собирай как про.</div>` : "";
 
   return `
-    <h2>🧠 Билд под драфт · ${p + 1} · ${POSITIONS[p]}</h2>
+    <h2>⚖️ Итоговый билд · ${p + 1} · ${POSITIONS[p]}</h2>
     ${myFits ? "" : `<p class="muted" style="margin-top:0">На твою позицию (${draft.me + 1} · ${POSITIONS[draft.me]}) этот герой обычно не ходит, поэтому билд для ${p + 1} · ${POSITIONS[p]}.</p>`}
     <div class="card build">
-      <div class="st">🛒 Старт</div>${varsHTML(starts)}
-      ${startsNote ? `<div class="why">${esc(startsNote)}</div>` : ""}
-      <div class="st">⏱ Ранняя игра</div>${varsHTML(earlies)}
-      ${core.variants.length ? `<div class="st">⚔️ Основа героя</div>${varsHTML(core.variants, core.subs)}
-        ${Object.keys(core.subs).length ? `<div class="why">Под предметом: % побед в пабе и среднее время покупки.</div>` : ""}` : ""}
-      <div class="st">🎯 Против этого драфта</div>${counters}
-    </div>`;
+      <div class="st">🛒 Старт</div>${varsHTML(starts.slice(0, 1))}
+      <div class="st">⏱ Ранняя игра</div>${balRowsHTML(bal.early, byKey, false)}
+      <div class="st">⚔️ Основа — по порядку покупки</div>${balRowsHTML(bal.core, byKey, true)}
+      ${draftNote}
+      <div class="why legend">🏆 — так собирают про · 🎯 — нужно против этого драфта ·
+        ~ — среднее время покупки в пабе, ≈ — примерная оценка</div>
+    </div>
+    <details class="pro-items alt"><summary>🔀 Другие варианты: старт, сапоги, основа</summary>
+      <div class="card build">
+        <div class="st">🛒 Старт</div>${varsHTML(starts)}
+        ${startsNote ? `<div class="why">${esc(startsNote)}</div>` : ""}
+        <div class="st">⏱ Ранняя игра</div>${varsHTML(earlies)}
+        ${core.variants.length ? `<div class="st">⚔️ Основа героя</div>${varsHTML(core.variants, core.subs)}
+          ${Object.keys(core.subs).length ? `<div class="why">Под предметом: % побед в пабе и среднее время покупки.</div>` : ""}` : ""}
+      </div>
+    </details>`;
 }
 
 /* ================================================================ карточка героя */
