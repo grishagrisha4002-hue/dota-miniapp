@@ -77,6 +77,14 @@
     background: #000; margin-bottom: 2px; }
   .build .st { font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
   .build .st:first-child { margin-top: 0; }
+  .build .var { padding: 6px 0 8px; border-bottom: 1px dashed rgba(127,127,127,.15); }
+  .build .var:last-of-type { border-bottom: 0; }
+  .build .vl { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+  .build .vl span { font-weight: 400; color: var(--hint); }
+  .build .item .ic { position: relative; display: block; }
+  .build .item .cnt { position: absolute; right: 2px; bottom: 2px; background: rgba(0,0,0,.75); color: #fff;
+    font-size: 10px; padding: 0 3px; border-radius: 4px; }
+  .build .item .sub { display: block; font-size: 10px; color: var(--good); margin-top: 1px; }
   .build .why, .ctr .why { font-size: 12px; color: var(--hint); margin-top: 4px; }
   .ctr { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0;
     border-bottom: 1px solid rgba(127,127,127,.12); }
@@ -153,6 +161,11 @@
   .rec .sc { font-weight: 700; font-size: 16px; }
   .warn { background: rgba(224,87,74,.12); color: var(--text); border-radius: 10px; padding: 10px 12px;
     font-size: 13px; margin-top: 10px; }
+  .draft-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .draft-head h1 { margin-right: 0; }
+  .reset-btn { flex-shrink: 0; padding: 8px 12px; border-radius: 10px; background: var(--card);
+    font-size: 13px; color: var(--text); margin-bottom: 8px; }
+  .reset-btn:active { transform: scale(.96); }
   .btn { display: block; width: 100%; padding: 12px; border-radius: 10px; background: var(--card);
     text-align: center; margin-top: 10px; }
 
@@ -172,7 +185,8 @@
 <body>
 
 <section class="view active" id="view-draft">
-  <h1>🧠 Помощник драфта</h1>
+  <div class="draft-head"><h1>🧠 Помощник драфта</h1>
+    <button class="reset-btn" id="draft-reset">🗑 Сбросить</button></div>
   <h2>🟢 Твоя команда</h2>
   <div class="slots" id="ally-slots"></div>
   <p class="muted" style="margin:6px 0 0;font-size:12px">Нажми на позицию, чтобы встать на неё.</p>
@@ -182,7 +196,6 @@
   <button class="add-ally add-enemy" id="add-enemy"><span class="pl">+</span> Добавить врага</button>
   <h2 id="recs-title">✅ Советую взять</h2>
   <div class="card" id="recs"><div class="loading">Загружаю данные…</div></div>
-  <button class="btn" id="draft-reset">🗑 Сбросить драфт</button>
 </section>
 
 <section class="view" id="view-heroes">
@@ -549,29 +562,131 @@ function draftCounters(p, h) {
 // эти предметы — части других, но их часто берут как готовые
 const CORE_OK_PARTS = new Set(["blink", "force_staff", "aether_lens", "orchid", "dragon_lance", "diffusal_blade"]);
 const ITEM_BY_KEY = () => Object.fromEntries(Object.values(ITEMS).map(it => [it.key, it]));
-function buildItemsHTML(keys, byKey) {
-  return `<div class="items">${keys.map(k => byKey[k]).filter(Boolean).map(it => `<div class="item" title="${esc(it.dname)}">
-    <img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">${esc(it.dname)}</div>`).join("")}</div>`;
+// предметы одной строкой; повторы (2 ветки) — одной иконкой с «×2»; subs — подпись под иконкой
+function buildItemsHTML(keys, byKey, subs = {}) {
+  const counts = new Map();
+  for (const k of keys) if (byKey[k]) counts.set(k, (counts.get(k) || 0) + 1);
+  return `<div class="items">${[...counts].map(([k, n]) => { const it = byKey[k]; return `<div class="item" title="${esc(it.dname)}">
+    <span class="ic"><img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">${n > 1 ? `<b class="cnt">×${n}</b>` : ""}</span>
+    ${esc(it.dname)}${subs[k] ? `<span class="sub">${subs[k]}</span>` : ""}</div>`; }).join("")}</div>`;
 }
 
-function draftBuildHTML(h, pop) {
+/* ---- варианты билдов: про-игры (itemPopularity) + паблик (itemTimings) ---- */
+const BOOT_KEYS = ["power_treads", "phase_boots", "arcane_boots", "tranquil_boots", "boots"];
+const LANE_BASICS = new Set(["tango", "flask", "branches", "faerie_fire", "clarity", "enchanted_mango",
+  "ward_observer", "ward_sentry", "ward_dispenser", "blood_grenade"]);
+const START_GOLD = 600;
+const itemTimings = id => api(`/scenarios/itemTimings?hero_id=${id}`, BUILD_TTL);
+
+// паблик: по каждому предмету — игр, % побед и среднее время покупки (мин); только покупки до maxSec
+function pubStats(rows, maxSec = Infinity) {
+  const s = {};
+  for (const r of rows || []) {
+    if (r.time > maxSec) continue;
+    const a = s[r.item] || (s[r.item] = { g: 0, w: 0, tw: 0 });
+    const g = +r.games;
+    a.g += g; a.w += +r.wins; a.tw += r.time * g;
+  }
+  for (const a of Object.values(s)) { a.wr = a.w / a.g * 100; a.t = a.tw / a.g / 60; }
+  return s;
+}
+const proRows = stage => Object.entries(stage || {}).map(([id, n]) => ({ it: ITEMS[id], n }))
+  .filter(r => r.it && !r.it.key.startsWith("recipe_")).sort((a, b) => b.n - a.n);
+const sameItems = (a, b) => a.slice().sort().join() === b.slice().sort().join();
+const uniqVariants = vs => vs.filter((v, i) => v.items.length && !vs.slice(0, i).some(o => sameItems(o.items, v.items)));
+
+function startVariants(pop, lane, byKey, p) {
+  // варды и смоки про-коры берут «на команду» — в личный стартовый билд их не ставим
+  const skip = new Set(["ward_dispenser", "smoke_of_deceit", "dust", ...(p <= 2 ? ["ward_observer", "ward_sentry"] : [])]);
+  const rows = proRows(pop.start_game_items).filter(r => !skip.has(r.it.key));
+  const games = Math.max(1, ...rows.map(r => r.n));          // танго берут почти все — ≈ число игр
+  const share = k => { const r = rows.find(r => r.it.key === k); return r ? Math.round(r.n / games * 100) : 0; };
+  // набираем самые популярные у про предметы на стартовое золото
+  const greedy = exclude => {
+    let gold = START_GOLD; const out = [];
+    for (const { it } of rows) if (!exclude.has(it.key) && (it.cost || 0) <= gold) { out.push(it.key); gold -= it.cost || 0; }
+    while (gold >= 50 && out.filter(k => k === "branches").length < 3) { out.push("branches"); gold -= 50; }
+    return out;
+  };
+  const special = items => items.filter(k => !LANE_BASICS.has(k));
+  const note = items => { const a = special(items)[0]; return a && byKey[a] ? `${share(a)}% про берут ${byKey[a].dname}` : ""; };
+  const v1 = rows.length ? greedy(new Set()) : [];
+  const v2 = rows.length ? greedy(new Set(special(v1))) : [];   // без «фирменных» предметов первого варианта
+  return uniqVariants([
+    { label: "⭐ Чаще всего у про", note: note(v1), items: v1 },
+    { label: "🔁 Другой вариант у про", note: note(v2), items: v2 },
+    { label: "🧠 Под драфт и позицию", note: "", items: lane.start },
+  ]);
+}
+
+function earlyVariants(pop, pub, lane, byKey) {
+  const rows = proRows(pop.early_game_items);
+  // сапоги часто доапгрейживают чуть позже — считаем покупки и в ранней, и в мид-игре
+  const bootCount = {};
+  for (const st of ["early_game_items", "mid_game_items"])
+    for (const { it, n } of proRows(pop[st])) if (BOOT_KEYS.includes(it.key)) bootCount[it.key] = (bootCount[it.key] || 0) + n;
+  let boots = Object.keys(bootCount).filter(k => k !== "boots");
+  if (!boots.length) boots = Object.keys(bootCount);
+  boots = boots.sort((a, b) => bootCount[b] - bootCount[a]).map(k => ({ it: byKey[k], n: bootCount[k] })).filter(b => b.it);
+  const bootsTotal = boots.reduce((s, r) => s + r.n, 0) || 1;
+  // только готовые предметы (без частей вроде Ring of Health / Void Stone)
+  const parts = new Set(Object.values(ITEMS).flatMap(it => it.components || []));
+  const others = rows.filter(r => !BOOT_KEYS.includes(r.it.key) && !LANE_BASICS.has(r.it.key) &&
+    (!parts.has(r.it.key) || CORE_OK_PARTS.has(r.it.key)) && !CONSUMABLES.has(r.it.key) &&
+    (r.it.cost || 0) >= 400 && (r.it.cost || 0) <= 2500).slice(0, 3).map(r => r.it.key);
+  const vs = boots.slice(0, 3).map(b => {
+    const s = pub[b.it.key];
+    return { label: `👟 ${b.it.dname}`,
+      note: `${Math.round(b.n / bootsTotal * 100)}% про` + (s && s.g >= 30 ? ` · паблик: ${s.wr.toFixed(0)}% побед, ${fmt(s.g)} игр` : ""),
+      items: [b.it.key, ...others] };
+  });
+  vs.push({ label: "🧠 Под драфт и позицию", note: lane.spamNote, items: lane.early });
+  return uniqVariants(vs);
+}
+
+function coreVariants(pop, pub, counters, used, byKey) {
+  const parts = new Set(Object.values(ITEMS).flatMap(it => it.components || []));
+  const okCore = it => it && (it.cost || 0) >= 2000 && (!parts.has(it.key) || CORE_OK_PARTS.has(it.key)) &&
+    !CONSUMABLES.has(it.key) && !/recipe_|boots|treads|travel|greaves/.test(it.key) && !used.has(it.key);
+  const pro = {};
+  for (const st of ["mid_game_items", "late_game_items"])
+    for (const { it, n } of proRows(pop[st])) if (okCore(it)) pro[it.key] = (pro[it.key] || 0) + n;
+  const proTop = Object.keys(pro).sort((a, b) => pro[b] - pro[a]);
+  const minG = Math.max(30, 0.05 * Math.max(0, ...Object.values(pub).map(s => s.g)));
+  const pubTop = Object.keys(pub).filter(k => okCore(byKey[k]) && pub[k].g >= minG).sort((a, b) => pub[b].wr - pub[a].wr);
+  // не ставим рядом предмет и его улучшение (Blink + Swift Blink)
+  const pick = list => list.slice(0, 6).filter((k, _, all) => !all.some(o => ((byKey[o] || {}).components || []).includes(k))).slice(0, 3);
+  const vPro = pick(proTop), vPub = pick(pubTop);
+  const big = counters.map(c => c.key).filter(k => byKey[k] && (byKey[k].cost || 0) >= 2000).slice(0, 2);
+  const vDraft = pick([...big, ...proTop.filter(k => !big.includes(k))]);
+  const subs = {};
+  for (const k of new Set([...vPro, ...vPub, ...vDraft])) {
+    const s = pub[k];
+    if (s && s.g >= 30) subs[k] = `${s.wr.toFixed(0)}% · ~${Math.round(s.t)} мин`;
+  }
+  return {
+    subs,
+    variants: uniqVariants([
+      { label: "⭐ Популярно у про", note: vPro[0] ? `${byKey[vPro[0]].dname} — в ${fmt(pro[vPro[0]])} про-играх` : "", items: vPro },
+      { label: "📈 Лучший винрейт в пабе", note: "собранные до 30-й минуты", items: vPub },
+      { label: "🧠 Под этот драфт", note: big.length ? "сначала предметы против врагов" : "", items: big.length ? vDraft : [] },
+    ]),
+  };
+}
+
+function draftBuildHTML(h, pop, timings) {
   const byKey = ITEM_BY_KEY();
   const myFits = fitsPosition(h, draft.me);
   const p = myFits ? draft.me : ([0, 1, 2, 3, 4].find(i => fitsPosition(h, i)) ?? draft.me);
   const { list, enemies, spam } = draftCounters(p, h);
   const lane = laneItems(p, h, spam);
-  const used = new Set([...lane.start, ...lane.early, ...list.map(x => x.key)]);
-  // основа — готовые предметы, которые этот герой обычно собирает (без того, что уже есть выше)
-  const parts = new Set(Object.values(ITEMS).flatMap(it => it.components || []));
-  const merged = { ...(pop.late_game_items || {}) };
-  for (const [k, n] of Object.entries(pop.mid_game_items || {})) merged[k] = (merged[k] || 0) + n;
-  const core = Object.entries(merged).sort((a, b) => b[1] - a[1]).map(([id]) => ITEMS[id]).filter(Boolean)
-    .filter(it => (it.cost || 0) >= 2000 && (!parts.has(it.key) || CORE_OK_PARTS.has(it.key)) &&
-      !CONSUMABLES.has(it.key) && !/recipe_|boots|treads|travel/.test(it.key) && !used.has(it.key))
-    .slice(0, 6)
-    // не показываем предмет, если рядом уже есть его улучшение (Blink + Swift Blink)
-    .filter((it, _, all) => !all.some(o => (o.components || []).includes(it.key)))
-    .map(it => it.key).slice(0, 3);
+  const pub = pubStats(timings, 1800);          // паблик: покупки до 30-й минуты
+  const starts = startVariants(pop, lane, byKey, p);
+  const earlies = earlyVariants(pop, pubStats(timings), lane, byKey);
+  const used = new Set([...lane.start, ...lane.early]);
+  const core = coreVariants(pop, pub, list, used, byKey);
+  const varsHTML = (vs, subs) => vs.map(v => `<div class="var"><div class="vl">${v.label}${v.note ? ` <span>· ${esc(v.note)}</span>` : ""}</div>
+    ${buildItemsHTML(v.items, byKey, subs)}</div>`).join("");
 
   const counters = enemies.length
     ? (list.length ? list.map(x => {
@@ -585,10 +700,10 @@ function draftBuildHTML(h, pop) {
     <h2>🧠 Билд под драфт · ${p + 1} · ${POSITIONS[p]}</h2>
     ${myFits ? "" : `<p class="muted" style="margin-top:0">На твою позицию (${draft.me + 1} · ${POSITIONS[draft.me]}) этот герой обычно не ходит, поэтому билд для ${p + 1} · ${POSITIONS[p]}.</p>`}
     <div class="card build">
-      <div class="st">🛒 Старт</div>${buildItemsHTML(lane.start, byKey)}
-      <div class="st">⏱ Ранняя игра</div>${buildItemsHTML(lane.early, byKey)}
-      ${lane.spamNote ? `<div class="why">${esc(lane.spamNote)}</div>` : ""}
-      ${core.length ? `<div class="st">⚔️ Основа героя</div>${buildItemsHTML(core, byKey)}` : ""}
+      <div class="st">🛒 Старт</div>${varsHTML(starts)}
+      <div class="st">⏱ Ранняя игра</div>${varsHTML(earlies)}
+      ${core.variants.length ? `<div class="st">⚔️ Основа героя</div>${varsHTML(core.variants, core.subs)}
+        ${Object.keys(core.subs).length ? `<div class="why">Под предметом: % побед в пабе и среднее время покупки.</div>` : ""}` : ""}
       <div class="st">🎯 Против этого драфта</div>${counters}
     </div>`;
 }
@@ -657,12 +772,13 @@ async function openHero(id, push = true) {
   showView("hero");
 
   try {
-    const [pop, mu, , pm] = await Promise.all([itemPop(id), matchups(id), loadItems(), proMatches(id).catch(() => [])]);
+    const [pop, mu, , pm, tim] = await Promise.all([itemPop(id), matchups(id), loadItems(),
+      proMatches(id).catch(() => []), itemTimings(id).catch(() => [])]);
     if (currentHeroId !== id) return;
     const rows = mu.filter(m => m.games_played >= MIN_MATCHUP_GAMES && HEROES[m.hero_id])
       .map(m => ({ h: HEROES[m.hero_id], wr: m.wins / m.games_played * 100, g: m.games_played }))
       .sort((a, b) => a.wr - b.wr);
-    $("#hero-draft-build").innerHTML = draftBuildHTML(h, pop);
+    $("#hero-draft-build").innerHTML = draftBuildHTML(h, pop, tim);
     $("#hero-build").innerHTML = `
       <details class="pro-items"><summary>📊 Что покупают про-игроки</summary>
         <h2>🛒 Стартовый закуп</h2><div class="card">${itemsHTML(pickItems(pop.start_game_items, false))}</div>
