@@ -75,6 +75,20 @@
   .item { width: 58px; text-align: center; font-size: 11px; color: var(--hint); }
   .item img { width: 58px; height: 42px; border-radius: 6px; object-fit: cover; display: block;
     background: #000; margin-bottom: 2px; }
+  .build .st { font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
+  .build .st:first-child { margin-top: 0; }
+  .build .why, .ctr .why { font-size: 12px; color: var(--hint); margin-top: 4px; }
+  .ctr { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0;
+    border-bottom: 1px solid rgba(127,127,127,.12); }
+  .ctr:last-child { border-bottom: 0; }
+  .ctr img { width: 50px; height: 36px; border-radius: 6px; object-fit: cover; background: #000; flex-shrink: 0; }
+  .ctr .why { margin-top: 2px; }
+  details.pro-items { margin-top: 18px; }
+  details.pro-items summary { cursor: pointer; padding: 12px; border-radius: var(--radius); background: var(--card);
+    font-weight: 600; font-size: 14px; list-style: none; }
+  details.pro-items summary::-webkit-details-marker { display: none; }
+  details.pro-items summary::after { content: " ▾"; color: var(--hint); }
+  details.pro-items[open] summary::after { content: " ▴"; }
   .mu { display: flex; flex-direction: column; gap: 6px; }
   .mu-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; }
   .mu-row img { width: 48px; height: 27px; border-radius: 4px; object-fit: cover; background: #000; }
@@ -403,6 +417,182 @@ $("#hero-attrs").onclick = e => { const c = e.target.closest(".chip"); if (c) { 
 $("#hero-sort").onclick = e => { const c = e.target.closest(".chip"); if (c) { heroState.sort = c.dataset.v; renderHeroes(); } };
 $("#hero-grid").onclick = e => { const t = e.target.closest(".hero-tile"); if (t) { haptic(); openHero(+t.dataset.id); } };
 
+/* ================================================================ билд под драфт */
+// Чем опасен вражеский герой. Имена — как в OpenDota (localized_name).
+const THREATS = {
+  magic: ["Ancient Apparition", "Bane", "Batrider", "Crystal Maiden", "Dark Willow", "Death Prophet", "Disruptor",
+    "Doom", "Earth Spirit", "Earthshaker", "Elder Titan", "Ember Spirit", "Enigma", "Grimstroke", "Huskar", "Invoker",
+    "Jakiro", "Keeper of the Light", "Largo", "Leshrac", "Lich", "Lina", "Lion", "Mirana", "Muerta", "Necrophos",
+    "Nyx Assassin", "Ogre Magi", "Oracle", "Outworld Devourer", "Phoenix", "Primal Beast", "Puck", "Pugna",
+    "Queen of Pain", "Ring Master", "Rubick", "Sand King", "Shadow Demon", "Shadow Fiend", "Silencer", "Skywrath Mage",
+    "Snapfire", "Storm Spirit", "Techies", "Timbersaw", "Tinker", "Undying", "Venomancer", "Viper", "Visage",
+    "Void Spirit", "Warlock", "Winter Wyvern", "Witch Doctor", "Zeus"],
+  physical: ["Alchemist", "Anti-Mage", "Arc Warden", "Beastmaster", "Bloodseeker", "Brewmaster", "Broodmother",
+    "Chaos Knight", "Clinkz", "Dragon Knight", "Drow Ranger", "Ember Spirit", "Faceless Void", "Gyrocopter",
+    "Hoodwink", "Juggernaut", "Kez", "Kunkka", "Legion Commander", "Lifestealer", "Lone Druid", "Luna", "Lycan", "Marci",
+    "Mars", "Medusa", "Meepo", "Monkey King", "Morphling", "Naga Siren", "Nature's Prophet", "Night Stalker",
+    "Phantom Assassin", "Phantom Lancer", "Razor", "Riki", "Shadow Fiend", "Slardar", "Slark", "Sniper", "Spectre",
+    "Spirit Breaker", "Sven", "Templar Assassin", "Terrorblade", "Tiny", "Troll Warlord", "Ursa", "Weaver",
+    "Windranger", "Wraith King"],
+  evasion: ["Brewmaster", "Phantom Assassin", "Windranger"],
+  illusions: ["Arc Warden", "Beastmaster", "Broodmother", "Chaos Knight", "Dark Seer", "Enigma", "Invoker",
+    "Lone Druid", "Lycan", "Meepo", "Morphling", "Naga Siren", "Nature's Prophet", "Phantom Lancer", "Shadow Demon",
+    "Terrorblade", "Undying", "Venomancer", "Visage", "Warlock"],
+  invis: ["Bounty Hunter", "Broodmother", "Clinkz", "Invoker", "Mirana", "Nyx Assassin", "Riki", "Sand King",
+    "Templar Assassin", "Treant Protector", "Weaver"],
+  heal: ["Abaddon", "Alchemist", "Bloodseeker", "Chen", "Dazzle", "Death Prophet", "Dragon Knight", "Huskar", "Io",
+    "Legion Commander", "Lifestealer", "Morphling", "Necrophos", "Omniknight", "Oracle", "Slark", "Timbersaw",
+    "Treant Protector", "Undying", "Warlock", "Witch Doctor", "Wraith King"],
+  disable: ["Axe", "Bane", "Batrider", "Beastmaster", "Centaur Warrunner", "Chaos Knight", "Clockwerk",
+    "Crystal Maiden", "Dark Willow", "Disruptor", "Doom", "Dragon Knight", "Earth Spirit", "Earthshaker",
+    "Elder Titan", "Enigma", "Faceless Void", "Grimstroke", "Jakiro", "Kunkka", "Largo", "Legion Commander", "Lion",
+    "Magnus", "Marci", "Mars", "Nyx Assassin", "Ogre Magi", "Pangolier", "Primal Beast", "Puck", "Pudge", "Ring Master",
+    "Rubick", "Sand King", "Shadow Demon", "Shadow Shaman", "Slardar", "Snapfire", "Spirit Breaker", "Storm Spirit",
+    "Sven", "Tidehunter", "Treant Protector", "Tusk", "Vengeful Spirit", "Void Spirit", "Warlock", "Winter Wyvern",
+    "Witch Doctor"],
+  silence: ["Bloodseeker", "Death Prophet", "Disruptor", "Doom", "Drow Ranger", "Earth Spirit", "Grimstroke",
+    "Night Stalker", "Puck", "Riki", "Silencer", "Skywrath Mage"],
+  mobile: ["Anti-Mage", "Batrider", "Earth Spirit", "Ember Spirit", "Faceless Void", "Hoodwink", "Kez", "Marci",
+    "Mirana", "Monkey King", "Morphling", "Pangolier", "Phoenix", "Puck", "Queen of Pain", "Slark", "Storm Spirit",
+    "Void Spirit", "Weaver", "Windranger"],
+  passive: ["Anti-Mage", "Axe", "Bristleback", "Chaos Knight", "Faceless Void", "Huskar", "Juggernaut", "Lifestealer",
+    "Mars", "Phantom Assassin", "Slardar", "Spectre", "Tidehunter", "Timbersaw", "Troll Warlord", "Ursa", "Viper",
+    "Wraith King"],
+  spam: ["Batrider", "Bristleback", "Death Prophet", "Earth Spirit", "Ember Spirit", "Huskar", "Invoker", "Jakiro",
+    "Leshrac", "Ogre Magi", "Puck", "Skywrath Mage", "Storm Spirit", "Timbersaw", "Tinker", "Venomancer", "Viper",
+    "Void Spirit", "Zeus"],
+};
+const THREAT_SETS = Object.fromEntries(Object.entries(THREATS).map(([k, v]) => [k, new Set(v)]));
+
+// Ответ на угрозу: какой предмет брать на каждой позиции (p — 0..4, h — твой герой).
+const melee = h => h.attack_type === "Melee";
+// бьёт с руки (а не кастер): ловкачи и силовые коры. Инвокеру/Штормe/Тинкеру предметы на атаку не нужны.
+// Оффлейнерам (Акс, Марс…) предметы на атаку не советуем, даже если OpenDota пишет им роль Carry.
+const attacker = (h, p) => p <= 2 && (h.primary_attr === "agi" ||
+  ((h.primary_attr === "str" || h.primary_attr === "all") && (p === 0 || (p === 1 && has(h, "Carry")))));
+const COUNTERS = [
+  { tag: "magic", min: 2, why: "много магического урона",
+    item: (p, h) => ["black_king_bar", "black_king_bar", "pipe", "glimmer_cape", "glimmer_cape"][p] },
+  { tag: "disable", min: 2, why: "много контроля",
+    item: (p, h) => ["black_king_bar", "black_king_bar", "black_king_bar", "lotus_orb", "force_staff"][p] },
+  { tag: "physical", min: 2, why: "сильные физические коры",
+    item: (p, h) => p <= 1
+      ? (!attacker(h, p) ? (h.primary_attr === "str" ? "blade_mail" : "shivas_guard")
+        : h.primary_attr === "str" ? "satanic" : "butterfly")
+      : ["crimson_guard", "solar_crest", "ghost"][p - 2] },
+  { tag: "evasion", min: 1, why: "уклонение — твои атаки будут промахиваться",
+    item: (p, h) => p <= 2 && attacker(h, p) ? "monkey_king_bar" : null },
+  { tag: "illusions", min: 1, why: "иллюзии и призывы",
+    item: (p, h) => p > 2 ? null : !attacker(h, p) ? "shivas_guard"
+      : p === 0 && melee(h) ? "bfury" : p <= 1 ? "mjollnir" : "shivas_guard" },
+  { tag: "invis", min: 1, why: "невидимость",
+    item: (p, h) => p === 4 ? "ward_sentry" : "dust" },
+  { tag: "heal", min: 1, why: "лечение и регенерация",
+    item: (p, h) => p <= 1 ? (attacker(h, p) ? "skadi" : "shivas_guard") : "spirit_vessel" },
+  { tag: "silence", min: 1, why: "немота",
+    item: (p, h) => p <= 1 ? (h.primary_attr === "agi" ? "manta" : "black_king_bar") : p <= 3 ? "lotus_orb" : "cyclone" },
+  { tag: "mobile", min: 1, why: "мобильные, убегают",
+    item: (p, h) => p <= 1 && !attacker(h, p) ? (p === 1 ? "orchid" : "sheepstick")
+      : p === 0 ? (melee(h) ? "abyssal_blade" : "bloodthorn") : p === 1 ? "orchid" : "rod_of_atos" },
+  { tag: "passive", min: 1, why: "сильные пассивки — Break их отключит",
+    item: (p, h) => p <= 2 && attacker(h, p) ? "silver_edge" : null },
+];
+
+const ATTR_ITEM = { str: "gauntlets", agi: "slippers", int: "mantle", all: "circlet" };
+const ATTR_BRACER = { str: "bracer", agi: "wraith_band", int: "null_talisman", all: "bracer" };
+
+// Старт и ранняя игра — по позиции и типу героя
+function laneItems(p, h, spam) {
+  const attr = h.primary_attr;
+  const start = [
+    ["tango", "flask", "branches", "branches", ...(melee(h) ? ["quelling_blade"] : []), ATTR_ITEM[attr]],
+    ["tango", "faerie_fire", "branches", "branches", ATTR_ITEM[attr]],
+    ["tango", "flask", "branches", ...(melee(h) ? ["quelling_blade"] : []), "ring_of_protection"],
+    ["tango", "blood_grenade", "ward_observer", "branches", "branches", "faerie_fire"],
+    ["tango", "flask", "ward_observer", "ward_sentry", "clarity", "branches"],
+  ][p];
+  const boots = p === 0 ? "power_treads"
+    : p === 1 ? (attr === "int" ? "arcane_boots" : "power_treads")
+    : p === 2 ? (melee(h) ? "phase_boots" : attr === "int" ? "arcane_boots" : "power_treads")
+    : p === 3 ? "tranquil_boots" : "arcane_boots";
+  const early = [
+    [ATTR_BRACER[attr], "magic_wand", boots],
+    ["bottle", "magic_wand", boots],
+    ["magic_wand", ATTR_BRACER[attr], boots],
+    ["magic_wand", "wind_lace", boots],
+    ["magic_wand", "wind_lace", boots],
+  ][p];
+  return { start, early, spamNote: spam.length ? `Волшебная палочка обязательна: ${spam.join(", ")} часто кастуют` : "" };
+}
+
+// Анализ драфта: что брать против этих врагов на этой позиции
+function draftCounters(p, h) {
+  const enemies = picked(draft.e).map(id => HEROES[id]).filter(Boolean);
+  const allies = picked(draft.a).map(id => HEROES[id]).filter(Boolean);
+  const out = new Map();   // ключ предмета -> { key, reasons: [] }
+  const add = (key, reason) => {
+    if (!key) return;
+    if (!out.has(key)) out.set(key, { key, reasons: [] });
+    out.get(key).reasons.push(reason);
+  };
+  const hits = COUNTERS.map(c => ({ c, who: enemies.filter(e => THREAT_SETS[c.tag].has(e.localized_name)) }))
+    .filter(x => x.who.length >= x.c.min)
+    .sort((a, b) => b.who.length - a.who.length);
+  for (const { c, who } of hits) add(c.item(p, h), `${c.why}: ${who.map(e => e.localized_name).join(", ")}`);
+  // союзники: если в команде некому начинать драки — инициатором будешь ты
+  if ((p === 2 || p === 3) && allies.length >= 2 && !allies.some(a => has(a, "Initiator")))
+    add("blink", "в твоей команде нет инициатора — начинать драки придётся тебе");
+  const spam = enemies.filter(e => THREAT_SETS.spam.has(e.localized_name)).map(e => e.localized_name);
+  return { list: [...out.values()].slice(0, 6), enemies, spam };
+}
+
+// эти предметы — части других, но их часто берут как готовые
+const CORE_OK_PARTS = new Set(["blink", "force_staff", "aether_lens", "orchid", "dragon_lance", "diffusal_blade"]);
+const ITEM_BY_KEY = () => Object.fromEntries(Object.values(ITEMS).map(it => [it.key, it]));
+function buildItemsHTML(keys, byKey) {
+  return `<div class="items">${keys.map(k => byKey[k]).filter(Boolean).map(it => `<div class="item" title="${esc(it.dname)}">
+    <img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">${esc(it.dname)}</div>`).join("")}</div>`;
+}
+
+function draftBuildHTML(h, pop) {
+  const byKey = ITEM_BY_KEY();
+  const myFits = fitsPosition(h, draft.me);
+  const p = myFits ? draft.me : ([0, 1, 2, 3, 4].find(i => fitsPosition(h, i)) ?? draft.me);
+  const { list, enemies, spam } = draftCounters(p, h);
+  const lane = laneItems(p, h, spam);
+  const used = new Set([...lane.start, ...lane.early, ...list.map(x => x.key)]);
+  // основа — готовые предметы, которые этот герой обычно собирает (без того, что уже есть выше)
+  const parts = new Set(Object.values(ITEMS).flatMap(it => it.components || []));
+  const merged = { ...(pop.late_game_items || {}) };
+  for (const [k, n] of Object.entries(pop.mid_game_items || {})) merged[k] = (merged[k] || 0) + n;
+  const core = Object.entries(merged).sort((a, b) => b[1] - a[1]).map(([id]) => ITEMS[id]).filter(Boolean)
+    .filter(it => (it.cost || 0) >= 2000 && (!parts.has(it.key) || CORE_OK_PARTS.has(it.key)) &&
+      !CONSUMABLES.has(it.key) && !/recipe_|boots|treads|travel/.test(it.key) && !used.has(it.key))
+    .slice(0, 6)
+    // не показываем предмет, если рядом уже есть его улучшение (Blink + Swift Blink)
+    .filter((it, _, all) => !all.some(o => (o.components || []).includes(it.key)))
+    .map(it => it.key).slice(0, 3);
+
+  const counters = enemies.length
+    ? (list.length ? list.map(x => {
+        const it = byKey[x.key];
+        return `<div class="ctr"><img loading="lazy" src="${it && it.img ? CDN + it.img : ""}" alt="">
+          <div><b>${esc(it ? it.dname : x.key)}</b><div class="why">${x.reasons.map(esc).join("<br>")}</div></div></div>`;
+      }).join("") : `<div class="muted">Против этих врагов ничего особого не нужно — собирай основу.</div>`)
+    : `<div class="muted">Добавь врагов в драфте — подберу предметы против них.</div>`;
+
+  return `
+    <h2>🧠 Билд под драфт · ${p + 1} · ${POSITIONS[p]}</h2>
+    ${myFits ? "" : `<p class="muted" style="margin-top:0">На твою позицию (${draft.me + 1} · ${POSITIONS[draft.me]}) этот герой обычно не ходит, поэтому билд для ${p + 1} · ${POSITIONS[p]}.</p>`}
+    <div class="card build">
+      <div class="st">🛒 Старт</div>${buildItemsHTML(lane.start, byKey)}
+      <div class="st">⏱ Ранняя игра</div>${buildItemsHTML(lane.early, byKey)}
+      ${lane.spamNote ? `<div class="why">${esc(lane.spamNote)}</div>` : ""}
+      ${core.length ? `<div class="st">⚔️ Основа героя</div>${buildItemsHTML(core, byKey)}` : ""}
+      <div class="st">🎯 Против этого драфта</div>${counters}
+    </div>`;
+}
+
 /* ================================================================ карточка героя */
 function pickItems(stage, late) {
   return Object.entries(stage || {}).sort((a, b) => b[1] - a[1]).map(([id, n]) => [ITEMS[id], n])
@@ -455,6 +645,8 @@ async function openHero(id, push = true) {
   v.innerHTML = `
     <div class="hero-head"><img src="${heroImg(h)}" alt="">
       <div class="over"><div class="t">${esc(h.localized_name)}</div><div class="s">${ATTRS[h.primary_attr] || ""} · ${esc(roles)}</div></div></div>
+    <div id="hero-draft-build"><div class="loading">Собираю билд под драфт…</div></div>
+    <h2>📈 Статистика</h2>
     <div class="stats">
       ${stat(pro.wr, "Про-сцена", pro.p)}
       ${stat(hi.wr, "Divine + Immortal", hi.p)}
@@ -470,17 +662,23 @@ async function openHero(id, push = true) {
     const rows = mu.filter(m => m.games_played >= MIN_MATCHUP_GAMES && HEROES[m.hero_id])
       .map(m => ({ h: HEROES[m.hero_id], wr: m.wins / m.games_played * 100, g: m.games_played }))
       .sort((a, b) => a.wr - b.wr);
+    $("#hero-draft-build").innerHTML = draftBuildHTML(h, pop);
     $("#hero-build").innerHTML = `
-      <h2>🛒 Стартовый закуп</h2><div class="card">${itemsHTML(pickItems(pop.start_game_items, false))}</div>
-      <h2>⏱ Ранняя игра</h2><div class="card">${itemsHTML(pickItems(pop.early_game_items, false))}</div>
-      <h2>⚔️ Мид-гейм</h2><div class="card">${itemsHTML(pickItems(pop.mid_game_items, true))}</div>
-      <h2>👑 Лейт</h2><div class="card">${itemsHTML(pickItems(pop.late_game_items, true))}</div>
+      <details class="pro-items"><summary>📊 Что покупают про-игроки</summary>
+        <h2>🛒 Стартовый закуп</h2><div class="card">${itemsHTML(pickItems(pop.start_game_items, false))}</div>
+        <h2>⏱ Ранняя игра</h2><div class="card">${itemsHTML(pickItems(pop.early_game_items, false))}</div>
+        <h2>⚔️ Мид-гейм</h2><div class="card">${itemsHTML(pickItems(pop.mid_game_items, true))}</div>
+        <h2>👑 Лейт</h2><div class="card">${itemsHTML(pickItems(pop.late_game_items, true))}</div>
+        <p class="muted">Под предметами — число про-матчей, в которых их покупали. Данные: OpenDota.</p>
+      </details>
       ${rows.some(r => r.wr < 50) ? `<h2>😣 Тяжело против</h2><div class="card">${muHTML(rows.filter(r => r.wr < 50).slice(0, 5))}</div>` : ""}
       ${rows.some(r => r.wr > 50) ? `<h2>😎 Хорош против</h2><div class="card">${muHTML(rows.filter(r => r.wr > 50).reverse().slice(0, 5))}</div>` : ""}
-      ${pm.length ? `<h2>🎮 Последние про-матчи</h2><div class="card">${matchesHTML(pm.slice(0, 10))}</div>` : ""}
-      <p class="muted">Под предметами указано число про-матчей, в которых их покупали. Данные: OpenDota.</p>`;
+      ${pm.length ? `<h2>🎮 Последние про-матчи</h2><div class="card">${matchesHTML(pm.slice(0, 10))}</div>` : ""}`;
   } catch (e) {
-    if (currentHeroId === id) $("#hero-build").innerHTML = `<div class="error">Не удалось загрузить закупы. Попробуй позже.</div>`;
+    if (currentHeroId === id) {
+      $("#hero-draft-build").innerHTML = "";
+      $("#hero-build").innerHTML = `<div class="error">Не удалось загрузить закупы. Попробуй позже.</div>`;
+    }
   }
 }
 let currentHeroId = null;
@@ -597,7 +795,7 @@ async function renderRecs() {
       const missing = NEEDED_ROLES.filter(r => !allies.some(a => (HEROES[a].roles || []).includes(r)));
       if (missing.length) html += `<div class="warn">⚠️ В команде нет: <b>${missing.map(r => ROLE_RU[r].toLowerCase()).join(", ")}</b>. Учти это при пике.</div>`;
     }
-    html += `<p class="muted" style="margin-bottom:0">Оценка: преимущество против каждого врага в про-матчах (п.п. винрейта) + текущая сила героя на Divine+.</p>`;
+    html += `<p class="muted" style="margin-bottom:0">👆 Нажми на героя — покажу билд под этот драфт.<br>Оценка: преимущество против каждого врага в про-матчах (п.п. винрейта) + текущая сила героя на Divine+.</p>`;
     box.innerHTML = html;
   } catch (e) {
     if (token === recsToken) box.innerHTML = `<div class="error">Не удалось загрузить данные. Проверь интернет и попробуй ещё раз.</div>`;
