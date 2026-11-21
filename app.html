@@ -595,6 +595,76 @@ const proRows = stage => Object.entries(stage || {}).map(([id, n]) => ({ it: ITE
 const sameItems = (a, b) => a.slice().sort().join() === b.slice().sort().join();
 const uniqVariants = vs => vs.filter((v, i) => v.items.length && !vs.slice(0, i).some(o => sameItems(o.items, v.items)));
 
+/* ---- реальные стартовые закупы: starts.json (собирает collect_starts.py) ---- */
+let STARTS = null;
+async function loadStarts() {
+  if (STARTS) return STARTS;
+  try {
+    const r = await fetch("starts.json", { cache: "no-cache" });
+    STARTS = r.ok ? await r.json() : {};
+  } catch (e) { STARTS = {}; }
+  return STARTS;
+}
+const SUPPORT_START = new Set(["ward_observer", "ward_sentry", "ward_dispenser", "blood_grenade", "smoke_of_deceit"]);
+const START_ORDER = ["tango", "flask", "faerie_fire", "enchanted_mango", "clarity", "branches"];
+// порядок показа: сначала «характерные» предметы (топорик, цирклеты…), потом расходка
+const sortStart = items => items.slice().sort((a, b) => {
+  const ia = START_ORDER.indexOf(a), ib = START_ORDER.indexOf(b);
+  if (ia < 0 && ib < 0) return a.localeCompare(b);
+  if (ia < 0) return -1; if (ib < 0) return 1;
+  return ia - ib;
+});
+
+// 3 заметно разных стартовых набора из про и Divine/Титан пабликов
+function realStartVariants(heroId, p, byKey) {
+  const data = STARTS || {};
+  const pro = (data.pro || {})[heroId], pub = (data.pub || {})[heroId];
+  if (!pro && !pub) return null;
+  // варды, смок и даст покупают «на команду» в разных сочетаниях — при сравнении наборов их не учитываем
+  const TEAM = new Set(["ward_observer", "ward_sentry", "ward_dispenser", "smoke_of_deceit", "dust"]);
+  const cand = new Map();
+  const addSrc = (src, name) => {
+    if (!src) return;
+    for (const [items, n, w] of src.sets) {
+      const all = items.split(",");
+      const own = all.filter(k => !TEAM.has(k));
+      if (!own.length) continue;
+      const key = own.join(",");
+      const c = cand.get(key) || { items: own, sup: false, team: false, pro: null, pub: null };
+      c.sup = c.sup || all.some(k => SUPPORT_START.has(k));
+      c.team = c.team || all.some(k => TEAM.has(k));
+      const s = c[name] || (c[name] = { n: 0, w: 0, share: 0 });
+      s.n += n; s.w += w; s.share = s.n / src.total;
+      cand.set(key, c);
+    }
+  };
+  addSrc(pro, "pro"); addSrc(pub, "pub");
+  let list = [...cand.values()].filter(c => Math.max(c.pro ? c.pro.n : 0, c.pub ? c.pub.n : 0) >= 2);
+  // саппортские наборы (варды, грената) — для 4–5 позиции, остальные — для коров
+  const isSup = c => c.sup;
+  const byRole = list.filter(c => (p >= 3) === isSup(c));
+  if (byRole.length) list = byRole;
+  const score = c => Math.max(c.pro ? c.pro.share : 0, c.pub ? c.pub.share : 0);
+  list.sort((a, b) => score(b) - score(a));
+  // берём наборы, которые отличаются хотя бы двумя видами предметов
+  const types = c => new Set(c.items);
+  const diff = (a, b) => { const A = types(a), B = types(b); let d = 0; for (const k of A) if (!B.has(k)) d++; for (const k of B) if (!A.has(k)) d++; return d; };
+  const chosen = [];
+  for (const minDiff of [2, 1]) {          // сначала сильно разные; если мало — хотя бы чем-то отличающиеся
+    for (const c of list) {
+      if (chosen.length === 3) break;
+      if (!chosen.includes(c) && chosen.every(o => diff(o, c) >= minDiff)) chosen.push(c);
+    }
+  }
+  const stat = (s, label) => s ? `${label}: ${Math.round(s.share * 100)}% (${fmt(s.n)} игр${s.n >= 10 ? `, ${Math.round(s.w / s.n * 100)}% побед` : ""})` : "";
+  return chosen.map((c, i) => ({
+    label: `${["1️⃣", "2️⃣", "3️⃣"][i]} Вариант ${i + 1}`,
+    note: [stat(c.pro, "🏆 про"), stat(c.pub, "💎 Divine/Титан")].filter(Boolean).join(" · ") +
+      (c.team && p >= 3 ? " · + варды/смок на команду" : ""),
+    items: sortStart(c.items),
+  }));
+}
+
 function startVariants(pop, lane, byKey, p) {
   // варды и смоки про-коры берут «на команду» — в личный стартовый билд их не ставим
   const skip = new Set(["ward_dispenser", "smoke_of_deceit", "dust", ...(p <= 2 ? ["ward_observer", "ward_sentry"] : [])]);
@@ -681,7 +751,10 @@ function draftBuildHTML(h, pop, timings) {
   const { list, enemies, spam } = draftCounters(p, h);
   const lane = laneItems(p, h, spam);
   const pub = pubStats(timings, 1800);          // паблик: покупки до 30-й минуты
-  const starts = startVariants(pop, lane, byKey, p);
+  const real = realStartVariants(h.id, p, byKey);
+  const starts = real && real.length ? real : startVariants(pop, lane, byKey, p);
+  const startsNote = real && real.length && STARTS.updated
+    ? `Реальные закупы до горна: про-матчи за ${STARTS.pro_days} дней и ${fmt(STARTS.pub_matches)} игр Divine/Титан. Обновлено ${STARTS.updated}.` : "";
   const earlies = earlyVariants(pop, pubStats(timings), lane, byKey);
   const used = new Set([...lane.start, ...lane.early]);
   const core = coreVariants(pop, pub, list, used, byKey);
@@ -701,6 +774,7 @@ function draftBuildHTML(h, pop, timings) {
     ${myFits ? "" : `<p class="muted" style="margin-top:0">На твою позицию (${draft.me + 1} · ${POSITIONS[draft.me]}) этот герой обычно не ходит, поэтому билд для ${p + 1} · ${POSITIONS[p]}.</p>`}
     <div class="card build">
       <div class="st">🛒 Старт</div>${varsHTML(starts)}
+      ${startsNote ? `<div class="why">${esc(startsNote)}</div>` : ""}
       <div class="st">⏱ Ранняя игра</div>${varsHTML(earlies)}
       ${core.variants.length ? `<div class="st">⚔️ Основа героя</div>${varsHTML(core.variants, core.subs)}
         ${Object.keys(core.subs).length ? `<div class="why">Под предметом: % побед в пабе и среднее время покупки.</div>` : ""}` : ""}
@@ -773,7 +847,7 @@ async function openHero(id, push = true) {
 
   try {
     const [pop, mu, , pm, tim] = await Promise.all([itemPop(id), matchups(id), loadItems(),
-      proMatches(id).catch(() => []), itemTimings(id).catch(() => [])]);
+      proMatches(id).catch(() => []), itemTimings(id).catch(() => []), loadStarts()]);
     if (currentHeroId !== id) return;
     const rows = mu.filter(m => m.games_played >= MIN_MATCHUP_GAMES && HEROES[m.hero_id])
       .map(m => ({ h: HEROES[m.hero_id], wr: m.wins / m.games_played * 100, g: m.games_played }))
