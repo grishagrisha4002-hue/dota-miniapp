@@ -166,9 +166,7 @@
   <h2>🔴 Враги</h2>
   <div class="slots" id="enemy-slots"></div>
   <button class="add-ally add-enemy" id="add-enemy"><span class="pl">+</span> Добавить врага</button>
-  <h2>🎭 Какая роль тебе нужна</h2>
-  <div class="chips" id="role-chips"></div>
-  <h2>✅ Советую взять</h2>
+  <h2 id="recs-title">✅ Советую взять</h2>
   <div class="card" id="recs"><div class="loading">Загружаю данные…</div></div>
   <button class="btn" id="draft-reset">🗑 Сбросить драфт</button>
 </section>
@@ -223,7 +221,61 @@ const META_WEIGHT = 0.5;            // вес текущего винрейта 
 const HIGH = [7, 8];                // Divine + Immortal
 
 const ATTRS = { str: "💪 Сила", agi: "🏹 Ловкость", int: "🧠 Интеллект", all: "🌀 Универсал" };
-const ROLES = [null, "Carry", "Support", "Initiator", "Nuker", "Disabler", "Durable", "Pusher"];
+// Какие герои играются на каждой позиции. Герой может быть на нескольких позициях.
+// Имена — как в OpenDota (localized_name). Новых героев, которых тут нет, раскладываем по ролям.
+const POSITION_HEROES = [
+  // 1 Керри
+  ["Alchemist", "Anti-Mage", "Arc Warden", "Bloodseeker", "Chaos Knight", "Clinkz", "Dragon Knight", "Drow Ranger",
+   "Ember Spirit", "Faceless Void", "Gyrocopter", "Juggernaut", "Kez", "Lifestealer", "Lone Druid", "Luna", "Lycan",
+   "Medusa", "Meepo", "Monkey King", "Morphling", "Muerta", "Naga Siren", "Nature's Prophet", "Phantom Assassin",
+   "Phantom Lancer", "Razor", "Riki", "Shadow Fiend", "Slark", "Sniper", "Spectre", "Sven", "Templar Assassin",
+   "Terrorblade", "Tiny", "Troll Warlord", "Ursa", "Weaver", "Wraith King"],
+  // 2 Мид
+  ["Arc Warden", "Batrider", "Broodmother", "Death Prophet", "Dragon Knight", "Earth Spirit", "Ember Spirit", "Huskar",
+   "Invoker", "Keeper of the Light", "Kez", "Kunkka", "Leshrac", "Lina", "Lone Druid", "Magnus", "Meepo", "Monkey King",
+   "Necrophos", "Outworld Destroyer", "Outworld Devourer", "Pangolier", "Primal Beast", "Puck", "Queen of Pain",
+   "Razor", "Shadow Fiend", "Sniper", "Storm Spirit", "Templar Assassin", "Timbersaw", "Tinker", "Tiny", "Viper",
+   "Visage", "Void Spirit", "Windranger", "Zeus"],
+  // 3 Оффлейн
+  ["Abaddon", "Axe", "Batrider", "Beastmaster", "Brewmaster", "Bristleback", "Broodmother", "Centaur Warrunner",
+   "Clockwerk", "Dark Seer", "Dawnbreaker", "Death Prophet", "Doom", "Dragon Knight", "Enigma", "Kunkka",
+   "Legion Commander", "Lycan", "Magnus", "Mars", "Necrophos", "Night Stalker", "Omniknight", "Pangolier",
+   "Phoenix", "Primal Beast", "Pudge", "Razor", "Sand King", "Slardar", "Spirit Breaker", "Tidehunter", "Timbersaw",
+   "Underlord", "Venomancer", "Viper", "Visage", "Windranger"],
+  // 4 Семи-сап
+  ["Ancient Apparition", "Bane", "Batrider", "Bounty Hunter", "Chen", "Clockwerk", "Dark Willow", "Disruptor",
+   "Earth Spirit", "Earthshaker", "Elder Titan", "Enchantress", "Grimstroke", "Hoodwink", "Jakiro", "Keeper of the Light",
+   "Largo", "Lina", "Lion", "Marci", "Mirana", "Nyx Assassin", "Phoenix", "Pudge", "Pugna", "Ring Master", "Rubick",
+   "Shadow Demon", "Shadow Shaman", "Silencer", "Skywrath Mage", "Snapfire", "Spirit Breaker", "Techies", "Tiny",
+   "Treant Protector", "Tusk", "Undying", "Vengeful Spirit", "Venomancer", "Weaver", "Windranger"],
+  // 5 Фулл-сап
+  ["Abaddon", "Ancient Apparition", "Bane", "Chen", "Crystal Maiden", "Dark Willow", "Dazzle", "Disruptor",
+   "Elder Titan", "Enchantress", "Grimstroke", "Hoodwink", "Io", "Jakiro", "Keeper of the Light", "Largo", "Lich",
+   "Lion", "Marci", "Ogre Magi", "Omniknight", "Oracle", "Phoenix", "Pugna", "Ring Master", "Rubick", "Shadow Demon",
+   "Shadow Shaman", "Silencer", "Skywrath Mage", "Snapfire", "Techies", "Treant Protector", "Undying",
+   "Vengeful Spirit", "Venomancer", "Warlock", "Winter Wyvern", "Witch Doctor"],
+].map(list => new Set(list));
+const LISTED_HEROES = new Set(POSITION_HEROES.flatMap(s => [...s]));
+
+// запасной вариант для героев не из списка — по ролям из OpenDota
+const has = (h, r) => (h.roles || []).includes(r);
+const first = h => (h.roles || [])[0];
+const POSITION_BY_ROLES = [
+  // 1 Керри: кор с ролью Carry, не саппорт
+  h => has(h, "Carry") && !has(h, "Support") && (first(h) === "Carry" || h.primary_attr === "agi"),
+  // 2 Мид: нюкер/кор (SF, Инвокер, Шторм, Лина, Пак, QoP…)
+  h => has(h, "Nuker") && (has(h, "Carry") || has(h, "Escape")) && !(first(h) === "Support" && !has(h, "Carry")),
+  // 3 Оффлейн: живучий инициатор (Акс, Марс, Тайд, Андерлорд, Бристл…)
+  h => ((has(h, "Durable") || has(h, "Initiator")) && h.primary_attr === "str") ||
+       first(h) === "Initiator" || first(h) === "Durable",
+  // 4 Семи-сап: саппорт или роумер с контролем (Таск, Шейкер…)
+  h => has(h, "Support") || (has(h, "Initiator") && has(h, "Disabler") && !has(h, "Carry") && !has(h, "Durable")),
+  // 5 Фулл-сап
+  h => has(h, "Support"),
+];
+const fitsPosition = (h, pos) => LISTED_HEROES.has(h.localized_name)
+  ? POSITION_HEROES[pos].has(h.localized_name)
+  : POSITION_BY_ROLES[pos](h);
 const ROLE_RU = { null: "Любая", Carry: "Керри", Support: "Саппорт", Initiator: "Инициатор",
   Nuker: "Нюкер", Disabler: "Контроль", Durable: "Танк", Pusher: "Пушер", Escape: "Мобильный",
   Jungler: "Лесник" };
@@ -464,7 +516,7 @@ $("#top-mode").onclick = e => { const c = e.target.closest(".chip"); if (c) { to
 $("#top-list").onclick = e => { const r = e.target.closest(".top-row"); if (r) { haptic(); openHero(+r.dataset.id); } };
 
 /* ================================================================ драфт */
-const emptyDraft = () => ({ a: Array(TEAM_SIZE).fill(null), e: Array(TEAM_SIZE).fill(null), me: 0, role: 0 });
+const emptyDraft = () => ({ a: Array(TEAM_SIZE).fill(null), e: Array(TEAM_SIZE).fill(null), me: 0 });
 let draft = lsGet("draft") || emptyDraft();
 const saveDraft = () => lsSet("draft", draft);
 const picked = arr => arr.filter(id => id != null);   // герои без пустых позиций
@@ -478,7 +530,7 @@ function normDraft(d) {
   if (d.me == null) d = { ...d, me: 0, a: [null, ...(d.a || [])] };
   const me = Math.min(Math.max(+d.me || 0, 0), TEAM_SIZE - 1);
   const a = fix(d.a); a[me] = null;
-  return { a, e: fix(d.e), me, role: d.role || 0 };
+  return { a, e: fix(d.e), me };
 }
 
 function slotHTML(side, id, idx) {
@@ -496,8 +548,7 @@ function renderDraft() {
   $("#enemy-slots").innerHTML = draft.e.map((id, i) => slotHTML("e", id, i)).join("");
   $("#add-ally").hidden = !freePositions("a").length;
   $("#add-enemy").hidden = !freePositions("e").length;
-  $("#role-chips").innerHTML = ROLES.map((r, i) =>
-    `<button class="chip ${i === draft.role ? "active" : ""}" data-v="${i}">${ROLE_RU[r]}</button>`).join("");
+  $("#recs-title").textContent = `✅ Советую взять на ${draft.me + 1} · ${POSITIONS[draft.me]}`;
   renderRecs();
 }
 
@@ -515,11 +566,10 @@ async function renderRecs() {
     }));
     if (token !== recsToken) return;
     const taken = new Set([...allies, ...enemies]);
-    const role = ROLES[draft.role];
     const recs = [];
     for (const h of HERO_LIST) {
       if (taken.has(h.id)) continue;
-      if (role && !(h.roles || []).includes(role)) continue;
+      if (!fitsPosition(h, draft.me)) continue;   // советуем только героев под твою позицию
       // если враг E часто проигрывает герою X — X хорош против E
       const parts = enemies.map((e, i) => {
         const m = tables[i][h.id] || { wins: 0, games_played: 0 };
@@ -545,7 +595,7 @@ async function renderRecs() {
 
     if (allies.length >= 2) {
       const missing = NEEDED_ROLES.filter(r => !allies.some(a => (HEROES[a].roles || []).includes(r)));
-      if (missing.length) html += `<div class="warn">⚠️ В команде нет: <b>${missing.map(r => ROLE_RU[r].toLowerCase()).join(", ")}</b>. Попробуй выбрать эту роль.</div>`;
+      if (missing.length) html += `<div class="warn">⚠️ В команде нет: <b>${missing.map(r => ROLE_RU[r].toLowerCase()).join(", ")}</b>. Учти это при пике.</div>`;
     }
     html += `<p class="muted" style="margin-bottom:0">Оценка: преимущество против каждого врага в про-матчах (п.п. винрейта) + текущая сила героя на Divine+.</p>`;
     box.innerHTML = html;
@@ -574,7 +624,6 @@ $("#ally-slots").onclick = $("#enemy-slots").onclick = e => {
   draft[side][idx] = null;
   saveDraft(); renderDraft();
 };
-$("#role-chips").onclick = e => { const c = e.target.closest(".chip"); if (c) { haptic(); draft.role = +c.dataset.v; saveDraft(); renderDraft(); } };
 $("#recs").onclick = e => { const r = e.target.closest(".rec"); if (r) { haptic(); openHero(+r.dataset.id); } };
 $("#draft-reset").onclick = () => { haptic("medium"); draft = { ...emptyDraft(), me: draft.me }; saveDraft(); renderDraft(); };
 
