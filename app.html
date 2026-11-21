@@ -582,23 +582,17 @@ function buildItemsHTML(keys, byKey, subs = {}) {
     ${esc(it.dname)}${subs[k] ? `<span class="sub">${subs[k]}</span>` : ""}</div>`; }).join("")}</div>`;
 }
 
-/* ---- варианты билдов: про-игры (itemPopularity) + паблик (itemTimings) ---- */
+/* ---- варианты билдов: только про (itemPopularity + starts.json), без обычных пабликов ---- */
 const BOOT_KEYS = ["power_treads", "phase_boots", "arcane_boots", "tranquil_boots", "boots"];
 const LANE_BASICS = new Set(["tango", "flask", "branches", "faerie_fire", "clarity", "enchanted_mango",
   "ward_observer", "ward_sentry", "ward_dispenser", "blood_grenade"]);
 const START_GOLD = 600;
-const itemTimings = id => api(`/scenarios/itemTimings?hero_id=${id}`, BUILD_TTL);
 
-// паблик: по каждому предмету — игр, % побед и среднее время покупки (мин); только покупки до maxSec
-function pubStats(rows, maxSec = Infinity) {
+// когда про-игроки покупают предметы на этом герое: { item: { g: игр, t: средняя минута } } из starts.json
+function proTiming(heroId) {
+  const src = ((STARTS || {}).timing || {})[heroId] || {};
   const s = {};
-  for (const r of rows || []) {
-    if (r.time > maxSec) continue;
-    const a = s[r.item] || (s[r.item] = { g: 0, w: 0, tw: 0 });
-    const g = +r.games;
-    a.g += g; a.w += +r.wins; a.tw += r.time * g;
-  }
-  for (const a of Object.values(s)) { a.wr = a.w / a.g * 100; a.t = a.tw / a.g / 60; }
+  for (const [k, [g, t]] of Object.entries(src)) s[k] = { g, t };
   return s;
 }
 const proRows = stage => Object.entries(stage || {}).map(([id, n]) => ({ it: ITEMS[id], n }))
@@ -626,10 +620,10 @@ const sortStart = items => items.slice().sort((a, b) => {
   return ia - ib;
 });
 
-// 3 заметно разных стартовых набора из про и Divine/Титан пабликов
+// 3 заметно разных стартовых набора — только про: турнирные матчи и игры про-игроков вне турниров
 function realStartVariants(heroId, p, byKey) {
   const data = STARTS || {};
-  const pro = (data.pro || {})[heroId], pub = (data.pub || {})[heroId];
+  const pro = (data.pro || {})[heroId], pub = (data.propub || {})[heroId];
   if (!pro && !pub) return null;
   // варды, смок и даст покупают «на команду» в разных сочетаниях — при сравнении наборов их не учитываем
   const TEAM = new Set(["ward_observer", "ward_sentry", "ward_dispenser", "smoke_of_deceit", "dust"]);
@@ -670,7 +664,7 @@ function realStartVariants(heroId, p, byKey) {
   const stat = (s, label) => s ? `${label}: ${Math.round(s.share * 100)}% (${fmt(s.n)} игр${s.n >= 10 ? `, ${Math.round(s.w / s.n * 100)}% побед` : ""})` : "";
   return chosen.map((c, i) => ({
     label: `${["1️⃣", "2️⃣", "3️⃣"][i]} Вариант ${i + 1}`,
-    note: [stat(c.pro, "🏆 про"), stat(c.pub, "💎 Divine/Титан")].filter(Boolean).join(" · ") +
+    note: [stat(c.pro, "🏆 турниры"), stat(c.pub, "👤 про вне турниров")].filter(Boolean).join(" · ") +
       (c.team && p >= 3 ? " · + варды/смок на команду" : ""),
     items: sortStart(c.items),
   }));
@@ -715,12 +709,8 @@ function earlyVariants(pop, pub, lane, byKey) {
   const others = rows.filter(r => !BOOT_KEYS.includes(r.it.key) && !LANE_BASICS.has(r.it.key) &&
     (!parts.has(r.it.key) || CORE_OK_PARTS.has(r.it.key)) && !CONSUMABLES.has(r.it.key) &&
     (r.it.cost || 0) >= 400 && (r.it.cost || 0) <= 2500).slice(0, 3).map(r => r.it.key);
-  const vs = boots.slice(0, 3).map(b => {
-    const s = pub[b.it.key];
-    return { label: `👟 ${b.it.dname}`,
-      note: `${Math.round(b.n / bootsTotal * 100)}% про` + (s && s.g >= 30 ? ` · паблик: ${s.wr.toFixed(0)}% побед, ${fmt(s.g)} игр` : ""),
-      items: [b.it.key, ...others] };
-  });
+  const vs = boots.slice(0, 3).map(b => ({ label: `👟 ${b.it.dname}`,
+    note: `${Math.round(b.n / bootsTotal * 100)}% про`, items: [b.it.key, ...others] }));
   vs.push({ label: "🧠 Под драфт и позицию", note: lane.spamNote, items: lane.early });
   return uniqVariants(vs);
 }
@@ -733,23 +723,23 @@ function coreVariants(pop, pub, counters, used, byKey) {
   for (const st of ["mid_game_items", "late_game_items"])
     for (const { it, n } of proRows(pop[st])) if (okCore(it)) pro[it.key] = (pro[it.key] || 0) + n;
   const proTop = Object.keys(pro).sort((a, b) => pro[b] - pro[a]);
-  const minG = Math.max(30, 0.05 * Math.max(0, ...Object.values(pub).map(s => s.g)));
-  const pubTop = Object.keys(pub).filter(k => okCore(byKey[k]) && pub[k].g >= minG).sort((a, b) => pub[b].wr - pub[a].wr);
   // не ставим рядом предмет и его улучшение (Blink + Swift Blink)
   const pick = list => list.slice(0, 6).filter((k, _, all) => !all.some(o => ((byKey[o] || {}).components || []).includes(k))).slice(0, 3);
-  const vPro = pick(proTop), vPub = pick(pubTop);
+  const vPro = pick(proTop);
+  // второй вариант у про: без предметов первого
+  const vPro2 = pick(proTop.filter(k => !vPro.includes(k)));
   const big = counters.map(c => c.key).filter(k => byKey[k] && (byKey[k].cost || 0) >= 2000).slice(0, 2);
   const vDraft = pick([...big, ...proTop.filter(k => !big.includes(k))]);
   const subs = {};
-  for (const k of new Set([...vPro, ...vPub, ...vDraft])) {
-    const s = pub[k];
-    if (s && s.g >= 30) subs[k] = `${s.wr.toFixed(0)}% · ~${Math.round(s.t)} мин`;
+  for (const k of new Set([...vPro, ...vPro2, ...vDraft])) {
+    const s = pub[k];   // время покупки у про-игроков
+    if (s && s.g >= 3) subs[k] = `~${Math.round(s.t)} мин`;
   }
   return {
     subs,
     variants: uniqVariants([
       { label: "⭐ Популярно у про", note: vPro[0] ? `${byKey[vPro[0]].dname} — в ${fmt(pro[vPro[0]])} про-играх` : "", items: vPro },
-      { label: "📈 Лучший винрейт в пабе", note: "собранные до 30-й минуты", items: vPub },
+      { label: "🔁 Другой путь у про", note: vPro2[0] ? `${byKey[vPro2[0]].dname} — в ${fmt(pro[vPro2[0]])} про-играх` : "", items: vPro2 },
       { label: "🧠 Под этот драфт", note: big.length ? "сначала предметы против врагов" : "", items: big.length ? vDraft : [] },
     ]),
   };
@@ -807,12 +797,12 @@ function balancedBuild(p, h, pop, pubAll, counters, spam, byKey) {
   // не держим рядом предмет и его улучшение (Blink + Swift Blink)
   const core = order.filter((k, _, all) => !all.some(o => ((byKey[o] || {}).components || []).includes(k))).slice(0, 6)
     .map(k => {
-      const s = pubAll[k];
-      const known = s && s.g >= 20;
+      const s = pubAll[k];              // время покупки у про-игроков (если есть данные)
+      const known = s && s.g >= 3;
       return {
         key: k,
         t: known ? s.t : estMinute(byKey[k], p), tKnown: known,
-        pro: pro[k] ? `про: в ${fmt(pro[k])} играх` + (known ? ` · паблик: ${s.wr.toFixed(0)}% побед` : "") : null,
+        pro: pro[k] ? `про: в ${fmt(pro[k])} играх` : null,
         why: reasonsOf.get(k) || [],
       };
     }).sort((a, b) => a.t - b.t);
@@ -829,24 +819,47 @@ function balRowsHTML(rows, byKey, showTime) {
   }).join("");
 }
 
-function draftBuildHTML(h, pop, timings) {
+// Последние игры конкретных про-игроков на этом герое (starts.json → builds).
+// Формат записи: [имя, команда, время старта, победа 0/1, тип "pub"|"lobby"|"league", "старт,через,запятую", "предмет:минута,…"]
+const GAME_KIND = { pub: "паблик", lobby: "скрим/лобби", league: "турнир" };
+function proPlayersHTML(h, byKey) {
+  const list = (((STARTS || {}).builds) || {})[h.id] || [];
+  if (!list.length) return `<h2>👤 Как собирают про и топ-200 Европы</h2>
+    <div class="card"><div class="muted">Пока нет недавних игр про-игроков на этом герое. Данные обновляются каждую неделю.</div></div>`;
+  const rows = list.slice(0, 6).map(([name, team, ts, win, kind, start, core]) => {
+    const coreItems = (core || "").split(",").filter(Boolean).map(x => x.split(":"));
+    const subs = Object.fromEntries(coreItems.map(([k, m]) => [k, `${m} мин`]));
+    return `<div class="var">
+      <div class="vl">${esc(name)}${team ? ` <span>· ${esc(team)}</span>` : ""}
+        <span>· ${GAME_KIND[kind] || kind} · <b class="${win ? "good" : "bad"}">${win ? "победа" : "поражение"}</b> · ${ago(ts)}</span></div>
+      ${start ? buildItemsHTML(sortStart(start.split(",")), byKey) : ""}
+      ${coreItems.length ? buildItemsHTML(coreItems.map(([k]) => k), byKey, subs) : ""}
+    </div>`;
+  }).join("");
+  return `<h2>👤 Как собирают про и топ-200 Европы</h2>
+    <div class="card build">${rows}
+      <div class="why">Сверху — стартовый закуп, ниже — большие предметы и минута покупки.</div></div>`;
+}
+
+function draftBuildHTML(h, pop) {
   const byKey = ITEM_BY_KEY();
   const myFits = fitsPosition(h, draft.me);
   const p = myFits ? draft.me : ([0, 1, 2, 3, 4].find(i => fitsPosition(h, i)) ?? draft.me);
   const { list, enemies, spam } = draftCounters(p, h);
   const lane = laneItems(p, h, spam);
-  const pub = pubStats(timings, 1800);          // паблик: покупки до 30-й минуты
+  const timing = proTiming(h.id);               // когда про-игроки покупают предметы
   const real = realStartVariants(h.id, p, byKey);
   const starts = real && real.length ? real : startVariants(pop, lane, byKey, p);
   const startsNote = real && real.length && STARTS.updated
-    ? `Реальные закупы до горна: про-матчи за ${STARTS.pro_days} дней и ${fmt(STARTS.pub_matches)} игр Divine/Титан. Обновлено ${STARTS.updated}.` : "";
-  const earlies = earlyVariants(pop, pubStats(timings), lane, byKey);
+    ? `Реальные закупы до горна: турнирные матчи за ${STARTS.pro_days} дней` +
+      (STARTS.propub_games ? ` и ${fmt(STARTS.propub_games)} игр про-игроков вне турниров` : "") + `. Обновлено ${STARTS.updated}.` : "";
+  const earlies = earlyVariants(pop, timing, lane, byKey);
   const used = new Set([...lane.start, ...lane.early]);
-  const core = coreVariants(pop, pub, list, used, byKey);
+  const core = coreVariants(pop, timing, list, used, byKey);
   const varsHTML = (vs, subs) => vs.map(v => `<div class="var"><div class="vl">${v.label}${v.note ? ` <span>· ${esc(v.note)}</span>` : ""}</div>
     ${buildItemsHTML(v.items, byKey, subs)}</div>`).join("");
 
-  const bal = balancedBuild(p, h, pop, pubStats(timings), list, spam, byKey);
+  const bal = balancedBuild(p, h, pop, timing, list, spam, byKey);
   const draftNote = !enemies.length
     ? `<div class="why">Добавь врагов в драфте — добавлю в билд предметы против них (🎯).</div>`
     : !list.length ? `<div class="why">Против этих врагов ничего особого не нужно — собирай как про.</div>` : "";
@@ -855,20 +868,20 @@ function draftBuildHTML(h, pop, timings) {
     <h2>⚖️ Итоговый билд · ${p + 1} · ${POSITIONS[p]}</h2>
     ${myFits ? "" : `<p class="muted" style="margin-top:0">На твою позицию (${draft.me + 1} · ${POSITIONS[draft.me]}) этот герой обычно не ходит, поэтому билд для ${p + 1} · ${POSITIONS[p]}.</p>`}
     <div class="card build">
-      <div class="st">🛒 Старт</div>${varsHTML(starts.slice(0, 1))}
+      <div class="st">🛒 Старт — 3 варианта про</div>${varsHTML(starts)}
+      ${startsNote ? `<div class="why">${esc(startsNote)}</div>` : ""}
       <div class="st">⏱ Ранняя игра</div>${balRowsHTML(bal.early, byKey, false)}
       <div class="st">⚔️ Основа — по порядку покупки</div>${balRowsHTML(bal.core, byKey, true)}
       ${draftNote}
       <div class="why legend">🏆 — так собирают про · 🎯 — нужно против этого драфта ·
-        ~ — среднее время покупки в пабе, ≈ — примерная оценка</div>
+        ~ — среднее время покупки у про, ≈ — примерная оценка</div>
     </div>
-    <details class="pro-items alt"><summary>🔀 Другие варианты: старт, сапоги, основа</summary>
+    ${proPlayersHTML(h, byKey)}
+    <details class="pro-items alt"><summary>🔀 Другие варианты: сапоги, основа</summary>
       <div class="card build">
-        <div class="st">🛒 Старт</div>${varsHTML(starts)}
-        ${startsNote ? `<div class="why">${esc(startsNote)}</div>` : ""}
         <div class="st">⏱ Ранняя игра</div>${varsHTML(earlies)}
         ${core.variants.length ? `<div class="st">⚔️ Основа героя</div>${varsHTML(core.variants, core.subs)}
-          ${Object.keys(core.subs).length ? `<div class="why">Под предметом: % побед в пабе и среднее время покупки.</div>` : ""}` : ""}
+          ${Object.keys(core.subs).length ? `<div class="why">Под предметом — когда его обычно покупают про.</div>` : ""}` : ""}
       </div>
     </details>`;
 }
@@ -937,13 +950,13 @@ async function openHero(id, push = true) {
   showView("hero");
 
   try {
-    const [pop, mu, , pm, tim] = await Promise.all([itemPop(id), matchups(id), loadItems(),
-      proMatches(id).catch(() => []), itemTimings(id).catch(() => []), loadStarts()]);
+    const [pop, mu, , pm] = await Promise.all([itemPop(id), matchups(id), loadItems(),
+      proMatches(id).catch(() => []), loadStarts()]);
     if (currentHeroId !== id) return;
     const rows = mu.filter(m => m.games_played >= MIN_MATCHUP_GAMES && HEROES[m.hero_id])
       .map(m => ({ h: HEROES[m.hero_id], wr: m.wins / m.games_played * 100, g: m.games_played }))
       .sort((a, b) => a.wr - b.wr);
-    $("#hero-draft-build").innerHTML = draftBuildHTML(h, pop, tim);
+    $("#hero-draft-build").innerHTML = draftBuildHTML(h, pop);
     $("#hero-build").innerHTML = `
       <details class="pro-items"><summary>📊 Что покупают про-игроки</summary>
         <h2>🛒 Стартовый закуп</h2><div class="card">${itemsHTML(pickItems(pop.start_game_items, false))}</div>
