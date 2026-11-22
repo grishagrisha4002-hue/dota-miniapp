@@ -345,6 +345,22 @@
   .loading::before { content: ""; display: block; width: 26px; height: 26px; margin: 0 auto 10px; border-radius: 50%;
     border: 2px solid rgba(233,185,73,.18); border-top-color: var(--gold); animation: spin .8s linear infinite; }
   .error { padding: 20px; text-align: center; color: var(--bad); }
+
+  /* ---- плашка канала ---- */
+  .chan-card { position: relative; display: flex; align-items: center; gap: 12px; margin: 14px 0 4px; padding: 14px 40px 14px 14px;
+    border-radius: 16px; border: 1px solid rgba(233,185,73,.35);
+    background: radial-gradient(260px 120px at 0% 0%, rgba(233,185,73,.18), transparent 70%), var(--surface);
+    animation: fadeUp .3s ease both; }
+  .chan-card .ch-ico { flex: none; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+    font-size: 21px; background: linear-gradient(135deg, var(--gold), #b8862b); box-shadow: 0 0 16px rgba(233,185,73,.3); }
+  .chan-card .ch-txt { flex: 1; min-width: 0; }
+  .chan-card .ch-txt b { display: block; font: 800 14px/1.25 var(--display); color: var(--gold-2); }
+  .chan-card .ch-txt span { display: block; margin-top: 3px; font-size: 12px; line-height: 1.35; color: var(--hint); }
+  .chan-card .ch-go { flex: none; padding: 9px 12px; border-radius: 10px; font: 800 12px/1 var(--display);
+    color: #111; background: linear-gradient(135deg, var(--gold-2), var(--gold)); }
+  .chan-card .ch-go:active { transform: scale(.96); }
+  .chan-card .ch-x { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%;
+    color: var(--hint); font-size: 13px; background: transparent; }
 </style>
 </head>
 <body>
@@ -362,6 +378,7 @@
   <button class="add-ally add-enemy" id="add-enemy"><span class="pl">+</span> Добавить врага</button>
   <h2 id="recs-title">Советую взять</h2>
   <div class="card" id="recs"><div class="loading">Загружаю данные…</div></div>
+  <div class="chan-slot"></div>
 </section>
 
 <section class="view" id="view-heroes">
@@ -379,6 +396,7 @@
   <div class="chips" id="top-mode"></div>
   <div class="card" id="top-list"><div class="loading">Загружаю…</div></div>
   <p class="muted" id="top-note"></p>
+  <div class="chan-slot"></div>
 </section>
 
 <section class="view" id="view-hero"></section>
@@ -504,6 +522,30 @@ const haptic = (t = "light") => { try { tg && tg.HapticFeedback.impactOccurred(t
 const mem = {};
 function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+/* ---- плашка канала @dota2pro_news (закрыл крестиком — не показываем 14 дней) ---- */
+const CHANNEL_URL = "https://t.me/dota2pro_news";
+function renderChannelCards() {
+  const hidden = (lsGet("chanHideUntil") || 0) > Date.now();
+  document.querySelectorAll(".chan-slot").forEach(el => {
+    el.innerHTML = hidden ? "" : `<div class="chan-card">
+      <div class="ch-ico">📢</div>
+      <div class="ch-txt"><b>Мета, билды про и матч дня</b><span>Каждый день в нашем канале — без воды, по статистике</span></div>
+      <button class="ch-go">Подписаться</button>
+      <button class="ch-x" aria-label="Скрыть">✕</button></div>`;
+  });
+}
+document.addEventListener("click", e => {
+  if (e.target.closest(".ch-go")) {
+    try { haptic(); } catch (_) {}
+    return tg && tg.openTelegramLink ? tg.openTelegramLink(CHANNEL_URL) : window.open(CHANNEL_URL, "_blank");
+  }
+  if (e.target.closest(".ch-x")) {
+    lsSet("chanHideUntil", Date.now() + 14 * 864e5);
+    renderChannelCards();
+  }
+});
+renderChannelCards();
 
 async function api(path, ttl) {
   const now = Date.now();
