@@ -158,6 +158,9 @@
   .bal .tc { color: var(--bad); font-weight: 500; }
   .bal .ti { color: var(--text); opacity: .78; }
   .bal .tx { color: var(--good); }
+  .bal .twhy { color: var(--gold-2); opacity: .92; }
+  .build .sub-st { font: 700 11px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--hint);
+    margin: 10px 0 2px; padding: 6px 8px; border-radius: 6px; background: var(--surface); display: inline-block; }
   .bal .tidle { color: var(--hint); font-style: italic; }
   .build .legend { margin-top: 12px; font-size: 11px; padding-top: 10px; border-top: 1px solid var(--line); }
 
@@ -1167,6 +1170,96 @@ function coreVariants(pop, pub, counters, used, byKey) {
 const GPM_BY_POS = [620, 580, 470, 340, 300];
 const estMinute = (it, p) => Math.round(6 + (it.cost || 0) / GPM_BY_POS[p] * 1.6);
 
+/* ---- почему про покупают предмет на этом герое (простыми словами) ---- */
+const CORE_POS = p => p <= 2;
+const PRO_WHY = {
+  // фарм
+  bfury: (h, p) => "быстро фармит лес и пачки крипов — керри раньше собирает следующие предметы",
+  maelstrom: (h, p) => "молнии ускоряют фарм и бьют сразу по нескольким врагам",
+  mjollnir: (h, p) => "молнии и скорость атаки: быстрый фарм и урон по нескольким целям в драке",
+  radiance: (h, p) => "жжёт всё вокруг — фармит пачки и не даёт врагам долго стоять рядом",
+  hand_of_midas: (h, p) => "окупается сам и даёт опыт — берут на героях, которым нужно быстро набрать уровни",
+  // керри/мид
+  manta: (h, p) => "иллюзии помогают фармить и бить, а применение снимает с тебя немоту и замедления",
+  black_king_bar: (h, p) => CORE_POS(p) ? "в драке тебя не перебьют контролем — кор должен наносить урон, а не стоять в стане" : "даёт прожить драку под контролем врага, чтобы успеть использовать способности",
+  desolator: (h, p) => "снижает броню — быстрее убиваешь героев и ломаешь башни",
+  greater_crit: (h, p) => "криты в лейте: убиваешь героя за пару ударов",
+  butterfly: (h, p) => "уклонение и скорость атаки — переживаешь удары вражеского керри",
+  skadi: (h, p) => "много здоровья и характеристик, атаки замедляют — от тебя не убежать",
+  satanic: (h, p) => "сильный вампиризм — выживаешь в долгой драке",
+  abyssal_blade: (h, p) => "оглушение сквозь BKB — ловишь и убиваешь ключевую цель",
+  bloodthorn: (h, p) => "немота и криты по цели — убиваешь героя, пока он не может ответить",
+  orchid: (h, p) => "немота на цель — герой не может убежать или ответить заклинаниями",
+  silver_edge: (h, p) => "невидимость для захода в драку и отключение пассивок врага",
+  monkey_king_bar: (h, p) => "атаки не промахиваются — нужен против уклонения",
+  diffusal_blade: (h, p) => "сжигает ману и замедляет — враг не убежит и не сколдует",
+  harpoon: (h, p) => "притягивает к цели — ближнему бою легче добраться до врага",
+  echo_sabre: (h, p) => "двойной удар с замедлением — сильно в начале драки",
+  sange_and_yasha: (h, p) => "здоровье и скорость — универсальный предмет для живучего кора",
+  dragon_lance: (h, p) => "дальность атаки — бьёшь из безопасной позиции",
+  hurricane_pike: (h, p) => "отталкивает от врага, а потом быстрые атаки — для дальнобойных коров",
+  // кастеры
+  octarine_core: (h, p) => "меньше перезарядка — чаще используешь способности в драке",
+  kaya_and_sange: (h, p) => "усиление заклинаний и живучесть — для героев, которые бьют способностями",
+  yasha_and_kaya: (h, p) => "усиление заклинаний и скорость — для героев, которые бьют способностями",
+  aether_lens: (h, p) => "дальность заклинаний — начинаешь драку и контролируешь с безопасного расстояния",
+  ethereal_blade: (h, p) => "усиливает магический урон по цели — для взрывного урона заклинаниями",
+  sheepstick: (h, p) => "надёжный контроль — выключаешь самого опасного врага в драке",
+  refresher: (h, p) => "два ульта подряд — решает массовые драки",
+  devastator: (h, p) => "усиливает магический урон после атак — для героев, бьющих и руками, и магией",
+  angels_demise: (h, p) => "криты заклинаниями — больше урона от способностей",
+  phylactery: (h, p) => "здоровье, мана и доп. урон от заклинаний",
+  // инициаторы/оффлейн
+  blink: (h, p) => has(h, "Initiator") || has(h, "Disabler") ? "Blink + способности: прыгаешь в толпу и сразу начинаешь драку" : "чтобы догнать цель или вовремя убежать",
+  overwhelming_blink: (h, p) => "блинк для силовиков: прыжок в драку с уроном и замедлением",
+  swift_blink: (h, p) => "блинк для ловкачей: прыжок к цели и быстрые атаки",
+  arcane_blink: (h, p) => "блинк для кастеров: прыжок и ускоренные заклинания",
+  blade_mail: (h, p) => "возвращает урон — враги сами умирают, пока бьют тебя",
+  crimson_guard: (h, p) => "блок урона на всю команду — оффлейнер защищает своих в драке",
+  pipe: (h, p) => "щит от магии на всю команду — против магического урона",
+  assault: (h, p) => "броня тебе и команде, минус броня врагам — для долгих драк",
+  heart: (h, p) => "очень много здоровья — живучий фронтлайн",
+  shivas_guard: (h, p) => "аура замедляет атаки врагов и режет их лечение",
+  vladmir: (h, p) => "аура вампиризма и брони — усиливает всю команду в драке",
+  guardian_greaves: (h, p) => "лечит и снимает плохие эффекты со всей команды",
+  // саппорты
+  force_staff: (h, p) => "спасаешь союзника или себя из ловушки — главный сейв саппорта",
+  glimmer_cape: (h, p) => "невидимость и щит от магии для союзника — спасает кора",
+  ghost: (h, p) => "на 4 с иммунитет к ударам — саппорт переживает нападение керри",
+  lotus_orb: (h, p) => "отражает заклинания в цель и снимает плохие эффекты с союзника",
+  solar_crest: (h, p) => "броня своему кору или снятие брони с цели",
+  spirit_vessel: (h, p) => "режет лечение врага и наносит урон — против героев с регенерацией",
+  cyclone: (h, p) => "поднимает себя или врага — сбивает заклинания и спасает от немоты",
+  wind_waker: (h, p) => "можно поднять союзника и переместить его — сильный сейв",
+  // универсальные
+  ultimate_scepter: (h, p) => "Аганим даёт этому герою новую или сильно улучшенную способность",
+  ultimate_scepter_2: (h, p) => "Аганим навсегда, не занимает слот",
+  aghanims_shard: (h, p) => "Осколок даёт этому герою новую способность или усиливает старую",
+  travel_boots: (h, p) => "успеваешь на любую линию и драку — в лейте важно быть везде",
+  // ранняя игра
+  power_treads: (h, p) => "атрибут и скорость атаки — быстрее фармишь и бьёшь",
+  phase_boots: (h, p) => "рывок скорости и урон — догоняешь врагов и быстрее фармишь",
+  arcane_boots: (h, p) => "мана себе и команде — чаще колдуешь на линии",
+  tranquil_boots: (h, p) => "быстро бегаешь по карте и сам лечишься — саппорт везде успевает",
+  boots: (h, p) => "сначала простые сапоги, потом улучшают",
+  magic_wand: (h, p) => "заряды от заклинаний врагов — спасает на линии в опасный момент",
+  wraith_band: (h, p) => "дешёвые статы для ловкача — легче стоять линию",
+  bracer: (h, p) => "дешёвые статы и здоровье — переживаешь харас на линии",
+  null_talisman: (h, p) => "дешёвые статы и мана — больше заклинаний на линии",
+  bottle: (h, p) => "мидер лечится и восстанавливает ману рунами и ходит гангать",
+  soul_ring: (h, p) => "мана ценой здоровья — можно колдовать чаще с самой линии",
+  falcon_blade: (h, p) => "урон, здоровье и мана — быстрее фармишь в начале",
+  orb_of_corrosion: (h, p) => "атаки замедляют и снижают броню — обижаешь врага на линии",
+  urn_of_shadows: (h, p) => "заряды за убийства: лечить своих или наносить урон врагу",
+};
+// строка «почему про берут» с учётом героя, позиции и того, первый ли это большой предмет
+function proReason(k, h, p, first) {
+  const f = PRO_WHY[k];
+  const base = f ? f(h, p) : (ITEM_GUIDE[k] && ITEM_GUIDE[k].what) || "";
+  if (!base) return "";
+  return (first ? "Первый большой предмет у про — " : "") + base;
+}
+
 function balancedBuild(p, h, pop, pubAll, counters, spam, byKey) {
   const parts = new Set(Object.values(ITEMS).flatMap(it => it.components || []));
   const finished = it => it && (!parts.has(it.key) || CORE_OK_PARTS.has(it.key));
@@ -1190,6 +1283,9 @@ function balancedBuild(p, h, pop, pubAll, counters, spam, byKey) {
     early.set(k, e);
   };
   if (topBoot) addE(topBoot, `${Math.round(bootCount[topBoot] / bootsTotal * 100)}% про берут эти сапоги`);
+  const second = bootKeys.find(k => k !== "boots" && k !== topBoot);   // второй популярный вариант сапог
+  if (second && bootCount[second] / bootsTotal >= 0.2)
+    addE(second, `${Math.round(bootCount[second] / bootsTotal * 100)}% про берут эти сапоги — вместо первых`);
   // в раннюю игру — только собранные предметы и несколько самостоятельных (Bottle, Wind Lace…), без частей вроде Javelin
   const STANDALONE_EARLY = new Set(["bottle", "wind_lace", "infused_raindrop", "blight_stone", "orb_of_venom", "magic_stick"]);
   earlyRows.filter(r => !BOOT_KEYS.includes(r.it.key) && !LANE_BASICS.has(r.it.key) && finished(r.it) &&
@@ -1199,36 +1295,45 @@ function balancedBuild(p, h, pop, pubAll, counters, spam, byKey) {
   if (spam.length) addE("magic_wand", null, `часто кастуют: ${spam.join(", ")}`);
   for (const c of counters) if (byKey[c.key] && (byKey[c.key].cost || 0) < 1500) c.reasons.forEach(r => addE(c.key, null, r));
 
-  // --- основа: чередуем предметы про и предметы против драфта (примерно поровну), 6 слотов
+  // ранняя игра: сначала то, что берут про, потом то, что требует драфт
+  const earlyAll = [...early.values()];
+  for (const e of earlyAll) if (e.pro) e.proWhy = proReason(e.key, h, p, false);
+  const earlyPro = earlyAll.filter(e => e.pro), earlyDraft = earlyAll.filter(e => !e.pro);
+
+  // --- основа: сначала как собирают про (по порядку покупки), потом что добавить под драфт
   const pro = {};
   for (const st of ["mid_game_items", "late_game_items"])
     for (const { it, n } of proRows(pop[st]))
       if (it && (it.cost || 0) >= 2000 && finished(it) && !CONSUMABLES.has(it.key) && !/boots|treads|travel|greaves/.test(it.key))
         pro[it.key] = (pro[it.key] || 0) + n;
-  const proTop = Object.keys(pro).sort((a, b) => pro[b] - pro[a]).filter(k => !early.has(k));
-  const ctrTop = counters.map(c => c.key).filter(k => byKey[k] && (byKey[k].cost || 0) >= 1500 && !early.has(k)).slice(0, 3);
-  const order = [];
-  for (let i = 0; order.length < 8 && (i < proTop.length || i < ctrTop.length); i++) {
-    for (const k of [proTop[i], ctrTop[i]]) if (k && !order.includes(k)) order.push(k);
-  }
-  // не держим рядом предмет и его улучшение (Blink + Swift Blink)
-  const core = order.filter((k, _, all) => !all.some(o => ((byKey[o] || {}).components || []).includes(k))).slice(0, 6)
-    .map(k => {
-      const s = pubAll[k];              // время покупки у про-игроков (если есть данные)
-      const known = s && s.g >= 3;
-      return {
-        key: k,
-        t: known ? s.t : estMinute(byKey[k], p), tKnown: known,
-        pro: pro[k] ? `про: в ${fmt(pro[k])} играх` : null,
-        why: reasonsOf.get(k) || [],
-      };
-    }).sort((a, b) => a.t - b.t);
-  return { early: [...early.values()], core };
+  // предмет и его улучшение (Blink и Overwhelming Blink) вместе не показываем — оставляем тот, что про берут чаще
+  const noUpgradePairs = list => list.filter(k => !list.some(o =>
+    (((byKey[o] || {}).components || []).includes(k) && pro[o] >= pro[k]) ||
+    (((byKey[k] || {}).components || []).includes(o) && pro[o] > pro[k])));
+  const proTop = noUpgradePairs(Object.keys(pro).sort((a, b) => pro[b] - pro[a]).filter(k => !early.has(k)).slice(0, 8)).slice(0, 5);
+  const row = k => {
+    const s = pubAll[k];              // время покупки у про-игроков (если есть данные)
+    const known = s && s.g >= 3;
+    return { key: k, t: known ? s.t : estMinute(byKey[k], p), tKnown: known,
+      pro: pro[k] ? `про: в ${fmt(pro[k])} играх` : null, why: reasonsOf.get(k) || [] };
+  };
+  const corePro = proTop.map(row).sort((a, b) => a.t - b.t);
+  // «первый большой предмет» — самый ранний из тех, что про берут часто (не реже трети от самого популярного)
+  const maxPro = Math.max(...proTop.map(k => pro[k]), 1);
+  const firstKey = (corePro.find(r => pro[r.key] >= maxPro / 3) || {}).key;
+  corePro.forEach(r => { r.proWhy = proReason(r.key, h, p, r.key === firstKey); });
+  // под драфт: предметы против врагов, которых нет в про-сборке (и не улучшения того, что там есть)
+  const coreDraft = counters.map(c => c.key)
+    .filter(k => byKey[k] && (byKey[k].cost || 0) >= 1500 && !early.has(k) && !proTop.includes(k) &&
+      !proTop.some(o => ((byKey[o] || {}).components || []).includes(k)))
+    .slice(0, 3).map(row).sort((a, b) => a.t - b.t);
+  return { earlyPro, earlyDraft, corePro, coreDraft,
+    early: earlyAll, core: [...corePro, ...coreDraft] };
 }
 
 // Мега-лейт: во что улучшить предметы из твоего билда (особенно новые предметы патча)
 // + что про докупают в лейте + Boots of Travel для коров
-function lateBuild(p, pop, buildKeys, byKey) {
+function lateBuild(p, pop, buildKeys, byKey, h) {
   const have = new Set(buildKeys);
   const late = {};
   for (const { it, n } of proRows(pop.late_game_items)) if (n >= 3) late[it.key] = n;   // 1–2 игры — случайность
@@ -1257,11 +1362,15 @@ function lateBuild(p, pop, buildKeys, byKey) {
   Object.entries(late).sort((a, b) => b[1] - a[1]).map(([k]) => byKey[k])
     .filter(it => it && (it.cost || 0) >= 4000 && !CONSUMABLES.has(it.key) && !it.key.startsWith("recipe_"))
     .slice(0, 4).forEach(it => add(it.key, null, 1));
-  for (const r of rows.values()) if (late[r.key]) r.pro = `про в лейте: в ${fmt(late[r.key])} играх`;
   // 3. коры в лейте меняют сапоги на Boots of Travel
   if (p <= 2 && !have.has("travel_boots") && !have.has("travel_boots_2"))
     add("travel_boots", "👟 в лейте сапоги обычно меняют на Boots of Travel", 0);
-  return [...rows.values()].sort((a, b) => b.prio - a.prio).slice(0, 6);
+  for (const r of rows.values()) if (late[r.key]) { r.pro = `про в лейте: в ${fmt(late[r.key])} играх`; r.proWhy = proReason(r.key, h, p, false); }
+  const all = [...rows.values()];
+  // сначала то, что про реально покупают в лейте (по частоте), потом улучшения твоих предметов
+  const proLate = all.filter(r => late[r.key]).sort((a, b) => late[b.key] - late[a.key]).slice(0, 4);
+  const up = all.filter(r => !late[r.key]).sort((a, b) => b.prio - a.prio).slice(0, 3);
+  return { pro: proLate, up };
 }
 
 function balRowsHTML(rows, byKey, showTime, enemies) {
@@ -1270,14 +1379,16 @@ function balRowsHTML(rows, byKey, showTime, enemies) {
     // для ситуативных предметов: что делает и нужен ли он против этих врагов
     const note = itemDraftNote(r.key, enemies);
     const need = note && !r.why.length ? note.need : [];
-    const idle = note && !r.why.length && !need.length ? note.idle : "";
+    // предметы, которые про берут как основные (есть «почему про берут»), не помечаем «можно заменить»
+    const idle = note && !r.why.length && !need.length && !r.proWhy ? note.idle : "";
     return `<div class="bal" data-k="${esc(r.key)}"><img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">
       <div class="bt"><b>${esc(it.dname)}</b>${showTime ? ` <span class="tm">${r.tKnown ? "~" : "≈"}${Math.round(r.t)} мин</span>` : ""}
         ${r.pro ? `<div class="tag tp">🏆 ${esc(r.pro)}</div>` : ""}
+        ${r.proWhy ? `<div class="tag twhy">🧠 Почему про берут: ${esc(r.proWhy)}</div>` : ""}
         ${(r.extra || []).map(w => `<div class="tag tx">${esc(w)}</div>`).join("")}
         ${r.why.map(w => `<div class="tag tc">🎯 ${esc(w)}</div>`).join("")}
         ${need.map(w => `<div class="tag tc">🎯 ${esc(w)}</div>`).join("")}
-        ${note ? `<div class="tag ti">ℹ️ ${esc(note.what)}</div>` : ""}
+        ${note && !r.proWhy ? `<div class="tag ti">ℹ️ ${esc(note.what)}</div>` : ""}
         ${idle ? `<div class="tag tidle">💡 ${esc(idle)}</div>` : ""}</div></div>`;
   }).join("");
 }
@@ -1341,7 +1452,10 @@ function draftBuildHTML(h, pop) {
 
   const bal = balancedBuild(p, h, pop, timing, list, spam, byKey);
   const buildKeys = [...((starts[0] || {}).items || []), ...bal.early.map(r => r.key), ...bal.core.map(r => r.key)];
-  const lateRows = lateBuild(p, pop, buildKeys, byKey);
+  const late = lateBuild(p, pop, buildKeys, byKey, h);
+  // подраздел: «как у про» / «под твой драфт»
+  const sub = (title, rows, showTime) => rows.length
+    ? `<div class="sub-st">${title}</div>${balRowsHTML(rows, byKey, showTime, enemies)}` : "";
   const draftNote = !enemies.length
     ? `<div class="why">Добавь врагов в драфте — добавлю в билд предметы против них (🎯).</div>`
     : !list.length ? `<div class="why">Против этих врагов ничего особого не нужно — собирай как про.</div>` : "";
@@ -1352,11 +1466,17 @@ function draftBuildHTML(h, pop) {
     <div class="card build">
       <div class="st">🛒 Старт — про в приоритете, затем топ-ладдер</div>${varsHTML(starts)}
       ${startsNote ? `<div class="why">${esc(startsNote)}</div>` : ""}
-      <div class="st">⏱ Ранняя игра</div>${balRowsHTML(bal.early, byKey, false, enemies)}
-      <div class="st">⚔️ Основа — по порядку покупки</div>${balRowsHTML(bal.core, byKey, true, enemies)}
-      ${lateRows.length ? `<div class="st">👑 Мега-лейт и улучшения — если игра затянулась</div>${balRowsHTML(lateRows, byKey, false, enemies)}` : ""}
+      <div class="st">⏱ Ранняя игра</div>
+      ${sub("🏆 Как берут про", bal.earlyPro, false)}
+      ${sub("🧠 Добавь под этот драфт", bal.earlyDraft, false)}
+      <div class="st">⚔️ Основа — по порядку покупки</div>
+      ${sub("🏆 Как собирают про", bal.corePro, true)}
+      ${sub("🧠 Под этот драфт добавь или замени", bal.coreDraft, true)}
+      ${late.pro.length || late.up.length ? `<div class="st">👑 Мега-лейт — если игра затянулась</div>
+        ${sub("🏆 Что про докупают в лейте", late.pro, false)}
+        ${sub("⬆️ Улучшения того, что у тебя уже есть", late.up, false)}` : ""}
       ${draftNote}
-      <div class="why legend">Нажми на предмет — подробнее. 🏆 — так собирают про · 🎯 — нужно против этого драфта · ℹ️ — что делает предмет ·
+      <div class="why legend">Нажми на предмет — подробнее. 🏆 — так собирают про · 🧠 — почему про это берут · 🎯 — нужно против этого драфта · ℹ️ — что делает предмет ·
         💡 — ситуативный, в этом драфте можно не брать · ~ — среднее время покупки у про, ≈ — примерная оценка</div>
     </div>
     ${proPlayersHTML(h, byKey)}
