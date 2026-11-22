@@ -120,6 +120,7 @@
   .ic-need { color: var(--bad); font-weight: 600; }
   .ic-idle { color: var(--hint); }
   .ic-core { color: var(--good); }
+  .ic-into { margin-top: 8px; color: var(--hint); }
   .guide-btn { display: block; width: 100%; margin: 0 0 4px; padding: 11px 12px; border-radius: 12px;
     background: var(--card); text-align: left; font-weight: 600; font-size: 14px;
     border: 1px solid rgba(127,127,127,.25); }
@@ -669,14 +670,39 @@ const ITEM_GUIDE = {
   disperser: { what: "сжигает ману и ускоряет союзника, снимая замедления" },
   revenants_brooch: { what: "атаки наносят магический урон" },
   wind_lace: { what: "дешёвая скорость передвижения" },
-  quelling_blade: { what: "больше урона по крипам — легче добивать" },
+
+  // --- стартовые и расходные предметы (start: true) — объяснения для новичков
+  quelling_blade: { start: true, what: "Топорик: больше урона по крипам — проще добивать их и получать золото. Ещё им можно срубить дерево. Берут герои ближнего боя, которые фармят" },
+  tango: { start: true, what: "Танго: «съешь» дерево — 16 секунд будешь восстанавливать здоровье. Главная еда на линии, берут почти всегда. Можно отдать союзнику" },
+  flask: { start: true, what: "Healing Salve (банка): за 10 секунд лечит много здоровья. Если тебя ударит враг — лечение прервётся, поэтому пей, когда отошёл подальше" },
+  branches: { start: true, what: "Iron Branch (ветка): самая дешёвая прибавка ко всем характеристикам — чуть больше здоровья, маны и урона. Потом ветки идут в Magic Wand. Можно посадить как дерево" },
+  circlet: { start: true, what: "Circlet: +2 ко всем характеристикам — чуть крепче стоишь на линии. Потом собирается в Wraith Band, Bracer или Null Talisman" },
+  slippers: { start: true, what: "Slippers of Agility: +ловкость — больше урона у ловкачей, броня и скорость атаки. Часть Wraith Band" },
+  mantle: { start: true, what: "Mantle of Intelligence: +интеллект — больше маны, чаще можно колдовать. Часть Null Talisman" },
+  gauntlets: { start: true, what: "Gauntlets of Strength: +сила — больше здоровья и регенерации. Часть Bracer" },
+  faerie_fire: { start: true, what: "Faerie Fire: съедаешь — мгновенно лечит немного здоровья. Пока лежит в инвентаре, даёт урон. Спасает в драке на линии, когда банка уже не поможет" },
+  enchanted_mango: { start: true, what: "Манго: съедаешь — мгновенно восстанавливает ману, чтобы ещё раз применить заклинание. Пока лежит, немного лечит здоровье" },
+  clarity: { start: true, what: "Clarity: восстанавливает ману в течение 25 секунд. Прерывается, если тебя ударит вражеский герой" },
+  blood_grenade: { start: true, what: "Blood Grenade: кидаешь во врага — урон и замедление. Саппорты берут, чтобы вместе с керри убить врага на линии в первые минуты" },
+  ward_observer: { start: true, what: "Observer Ward (вард): ставишь на землю — несколько минут видишь всё вокруг. Помогает видеть, куда идут враги. Обычно ставят саппорты" },
+  ward_dispenser: { start: true, what: "Обычный и сторожевой вард в одном слоте: обычный показывает область, сторожевой — невидимых" },
+  smoke_of_deceit: { start: true, what: "Smoke of Deceit: ты и союзники рядом становитесь невидимыми и пропадаете с карты врага — чтобы незаметно подойти и напасть" },
+  magic_stick: { start: true, what: "Magic Stick: копит заряды, когда враги рядом колдуют, потом разом лечит здоровье и ману. Позже улучшается в Magic Wand" },
+  orb_of_venom: { start: true, what: "Orb of Venom: атаки отравляют и замедляют врага — проще обижать его на линии" },
+  blight_stone: { start: true, what: "Blight Stone: атаки снижают броню врага — по нему больше урона" },
+  ring_of_protection: { start: true, what: "Ring of Protection: +броня — меньше урона, когда тебя бьют с руки на линии" },
+  sobi_mask: { start: true, what: "Sage's Mask: регенерация маны — чаще колдуешь" },
+  ring_of_regen: { start: true, what: "Ring of Regen: регенерация здоровья — дольше стоишь на линии без банок" },
+  tpscroll: { start: true, what: "Свиток телепорта: через несколько секунд переносит к союзной башне или зданию. Всегда держи один при себе" },
+  infused_raindrop: { start: true, what: "Infused Raindrop: блокирует часть магического урона — помогает на линии против героев с заклинаниями" },
+  fluffy_hat: { start: true, what: "Fluffy Hat: +здоровье" },
 };
 
 // Нужен ли ситуативный предмет в этом драфте и почему — для новичков
 function itemDraftNote(key, enemies) {
   const g = ITEM_GUIDE[key];
   if (!g) return null;
-  if (!g.tags || !g.tags.length) return { what: g.what, need: [], idle: "", core: true };   // основной предмет
+  if (!g.tags || !g.tags.length) return { what: g.what, need: [], idle: "", core: true, start: !!g.start };   // основной / стартовый
   const who = [];
   for (const tag of g.tags) {
     for (const e of enemies) {
@@ -798,12 +824,33 @@ function itemBadge(k) {
   if (note.need.length) return `<i class="ibadge need" title="нужен в этом драфте">🎯</i>`;
   return enemies.length ? `<i class="ibadge idle" title="в этом драфте можно не брать">💡</i>` : "";
 }
+// во что собирается предмет: { ключ: [названия больших предметов] }
+let USED_IN = null;
+function usedIn(k) {
+  if (!USED_IN) {
+    USED_IN = {};
+    for (const it of Object.values(ITEMS))
+      if (!it.key.startsWith("recipe_")) for (const c of it.components || []) (USED_IN[c] = USED_IN[c] || []).push(it);
+  }
+  return (USED_IN[k] || []).sort((a, b) => (a.cost || 0) - (b.cost || 0)).map(it => it.dname).filter((n, i, a) => a.indexOf(n) === i);
+}
 function openItemCard(k) {
   const it = ITEM_BY_KEY()[k];
   if (!it) return;
   const enemies = draftEnemies();
   const note = itemDraftNote(k, enemies);
-  const verdict = !note ? `<div class="muted">Для этого предмета пояснения пока нет.</div>`
+  const into = usedIn(k);
+  // для предметов без нашего описания — характеристики и способность прямо из данных игры (на английском)
+  const stats = (it.attrib || []).filter(a => a.display && a.value != null)
+    .map(a => a.display.replace("{value}", a.value)).slice(0, 4);
+  const abil = (it.abilities || []).map(a => `${a.title}: ${a.description}`).slice(0, 1);
+  const auto = !note && (stats.length || abil.length)
+    ? `<div class="ic-what">📋 ${[stats.map(esc).join(" · "), ...abil.map(esc)].filter(Boolean).join("<br>")}
+       <div class="muted">(описание из данных игры)</div></div>` : "";
+  const verdict = !note ? (into.length
+      ? `${auto}<div class="ic-what">🔩 Это деталь — её покупают по пути к большому предмету.</div>`
+      : auto || `<div class="muted">Для этого предмета пояснения пока нет.</div>`)
+    : note.start ? `<div class="ic-core">🛒 Стартовый предмет — покупают в начале игры, до выхода на линию или в первые минуты.</div>`
     : note.core ? `<div class="ic-core">✅ Основной предмет — его берут почти в каждой игре, не зависит от врагов.</div>`
     : note.need.length ? note.need.map(w => `<div class="ic-need">🎯 ${esc(w)}</div>`).join("")
     : `<div class="ic-idle">💡 ${esc(note.idle)}</div>`;
@@ -812,6 +859,7 @@ function openItemCard(k) {
       ${it.cost ? `<div class="muted">${fmt(it.cost)} золота</div>` : ""}</div></div>
     ${note ? `<div class="ic-what">ℹ️ ${esc(note.what)}</div>` : ""}
     ${verdict}
+    ${into.length ? `<div class="ic-into">⬆️ Потом собирается в: ${into.slice(0, 5).map(esc).join(", ")}${into.length > 5 ? " и др." : ""}</div>` : ""}
     ${enemies.length ? `<div class="muted" style="margin-top:8px">Враги в драфте: ${enemies.map(e => esc(e.localized_name)).join(", ")}</div>` : ""}`;
   $("#item-card").classList.add("open");
   haptic();
