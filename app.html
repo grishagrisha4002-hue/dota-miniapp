@@ -170,6 +170,11 @@
   .rec .nm { font-weight: 600; }
   .rec .det { font-size: 12px; color: var(--hint); }
   .rec .sc { font-weight: 700; font-size: 16px; }
+  .rec .risk { font-size: 12px; margin-top: 2px; }
+  .rec .badge { font-size: 10px; font-weight: 600; color: var(--good); border: 1px solid var(--good);
+    border-radius: 6px; padding: 0 4px; vertical-align: 2px; white-space: nowrap; }
+  .phase { font-size: 13px; line-height: 1.4; background: rgba(127,127,127,.1); border-radius: 10px;
+    padding: 8px 10px; margin-bottom: 4px; }
   .warn { background: rgba(224,87,74,.12); color: var(--text); border-radius: 10px; padding: 10px 12px;
     font-size: 13px; margin-top: 10px; }
   .draft-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -255,6 +260,9 @@ const TEAM_SIZE = 5;
 // позиции игроков: слот драфта № i — это позиция i+1
 const POSITIONS = ["Керри", "Мид", "Оффлейн", "Семи-сап", "Фулл-сап"];
 const DRAFT_PRIOR = 10;             // сглаживание матчапов с малым числом игр
+const DRAFT_CHECK = 16;             // сколько лучших кандидатов проверять на «легко ли законтрить»
+const COUNTER_POOL = 40;            // среди скольких популярных свободных героев искать контрпики
+const RISK_WEIGHT = 0.6;            // вес риска контрпика (умножается на долю неизвестных врагов)
 const META_WEIGHT = 0.5;            // вес текущего винрейта на Divine+
 const HIGH = [7, 8];                // Divine + Immortal
 
@@ -1074,14 +1082,45 @@ async function renderRecs() {
     }
     recs.sort((a, b) => b.score - a.score);
 
-    let html = "";
-    if (!enemies.length) html += `<p class="muted" style="margin-top:0">Добавь врагов, чтобы получить контрпики. Пока советую по силе героя в текущей мете.</p>`;
-    html += recs.slice(0, DRAFT_TOP).map(r => {
+    // Пока известны не все враги — враг ещё может законтрить тебя своими следующими пиками.
+    // Для лучших кандидатов смотрим, кто из популярных и ещё свободных героев их контрит, и штрафуем.
+    const k = enemies.length, unknown = TEAM_SIZE - k;
+    let top = recs.slice(0, DRAFT_CHECK);
+    if (unknown > 0) {
+      const pool = HERO_LIST.filter(x => !taken.has(x.id))
+        .sort((a, b) => pub(b, HIGH).p - pub(a, HIGH).p).slice(0, COUNTER_POOL);
+      const poolIds = new Set(pool.map(x => x.id));
+      const own = await Promise.all(top.map(r => matchups(r.h.id).catch(() => [])));
+      if (token !== recsToken) return;
+      top.forEach((r, i) => {
+        // насколько герой X обыгрывает кандидата (п.п.), со сглаживанием малых выборок
+        const threats = own[i].filter(m => poolIds.has(m.hero_id) && m.hero_id !== r.h.id)
+          .map(m => ({ id: m.hero_id, v: (0.5 - (m.wins + DRAFT_PRIOR * 0.5) / (m.games_played + DRAFT_PRIOR)) * 100 }))
+          .sort((a, b) => b.v - a.v);
+        const worst = threats.slice(0, 3);
+        r.risk = worst.length ? Math.max(0, worst.reduce((s, t) => s + t.v, 0) / worst.length) : 0;
+        r.counters = threats.filter(t => t.v >= 6).slice(0, 2).map(t => HEROES[t.id].localized_name);
+        r.score -= r.risk * RISK_WEIGHT * unknown / TEAM_SIZE;
+      });
+      top.sort((a, b) => b.score - a.score);
+    }
+
+    const phase = k === 0 ? `🕐 <b>Первый пик</b> — врагов ещё не видно. Советую сильных в мете героев, которых трудно законтрить.`
+      : k <= 2 ? `🕑 <b>${k === 1 ? "Виден 1 враг" : "Видно 2 врага"}</b> — советую героев, сильных против ${k === 1 ? "него" : "них"}, и чтобы у врага осталось мало контрпиков на ${unknown} оставшихся ${unknown === 4 ? "пика" : "пика"}.`
+      : k <= 4 ? `🕒 <b>Видно ${k} врага</b> — контрпики против них. У врага осталось ${unknown} ${unknown === 1 ? "пик" : "пика"}, риск получить контрпик меньше.`
+      : `🎯 <b>Все враги известны</b> — бери жёсткий контрпик, ответить тебе уже нечем.`;
+    let html = `<div class="phase">${phase}</div>`;
+    html += top.slice(0, DRAFT_TOP).map(r => {
       const det = r.parts.slice().sort((a, b) => b.v - a.v).slice(0, 3)
         .map(p => `${esc(HEROES[p.e].localized_name)} <span class="${p.v >= 0 ? "good" : "bad"}">${sign(p.v)}</span>`);
       det.push(`мета <span class="${r.meta >= 0 ? "good" : "bad"}">${sign(r.meta)}</span>`);
+      const allGood = r.parts.length >= 2 && r.parts.every(p => p.v >= 1);
+      const safety = unknown === 0 || r.risk == null ? ""
+        : r.counters.length ? `<div class="risk bad">⚠️ контрят: ${r.counters.map(esc).join(", ")}</div>`
+        : r.risk < 4 ? `<div class="risk good">✅ мало контрпиков</div>` : "";
       return `<button class="rec" data-id="${r.h.id}"><img loading="lazy" src="${heroImg(r.h)}" alt="">
-        <div class="mid"><div class="nm">${esc(r.h.localized_name)}</div><div class="det">${det.join(" · ")}</div></div>
+        <div class="mid"><div class="nm">${esc(r.h.localized_name)}${allGood ? ` <span class="badge">контрит всех видимых</span>` : ""}</div>
+          <div class="det">${det.join(" · ")}</div>${safety}</div>
         <div class="sc ${r.score >= 0 ? "good" : "bad"}">${sign(r.score)}</div></button>`;
     }).join("") || `<div class="muted">Нет подходящих героев, попробуй другую роль.</div>`;
 
@@ -1089,7 +1128,8 @@ async function renderRecs() {
       const missing = NEEDED_ROLES.filter(r => !allies.some(a => (HEROES[a].roles || []).includes(r)));
       if (missing.length) html += `<div class="warn">⚠️ В команде нет: <b>${missing.map(r => ROLE_RU[r].toLowerCase()).join(", ")}</b>. Учти это при пике.</div>`;
     }
-    html += `<p class="muted" style="margin-bottom:0">👆 Нажми на героя — покажу билд под этот драфт.<br>Оценка: преимущество против каждого врага в про-матчах (п.п. винрейта) + текущая сила героя на Divine+.</p>`;
+    html += `<p class="muted" style="margin-bottom:0">👆 Нажми на героя — покажу билд под этот драфт.<br>Оценка: преимущество против каждого видимого врага в про-матчах (п.п. винрейта) + сила героя в мете` +
+      (unknown > 0 ? ` − риск, что его законтрят оставшимися пиками.` : `.`) + `</p>`;
     box.innerHTML = html;
   } catch (e) {
     if (token === recsToken) box.innerHTML = `<div class="error">Не удалось загрузить данные. Проверь интернет и попробуй ещё раз.</div>`;
