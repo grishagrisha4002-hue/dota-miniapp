@@ -263,6 +263,9 @@ const DRAFT_PRIOR = 10;             // сглаживание матчапов �
 const DRAFT_CHECK = 16;             // сколько лучших кандидатов проверять на «легко ли законтрить»
 const COUNTER_POOL = 40;            // среди скольких популярных свободных героев искать контрпики
 const RISK_WEIGHT = 0.6;            // вес риска контрпика (умножается на долю неизвестных врагов)
+const SYNERGY_WEIGHT = 1.0;         // вес синергии с союзником (п.п. винрейта вместе)
+const SYNERGY_PRIOR = 30;           // сглаживание: пар «вместе» в про-матчах мало, без него решают случайные серии
+const FILL_BONUS = 1.5;             // бонус за каждую недостающую команде роль / тип урона
 const META_WEIGHT = 0.5;            // вес текущего винрейта на Divine+
 const HIGH = [7, 8];                // Divine + Immortal
 
@@ -374,6 +377,19 @@ async function loadItems() {
   return ITEMS;
 }
 const matchups = id => api(`/heroes/${id}/matchups`, BUILD_TTL);
+// С кем герой играет в одной команде в про-матчах и как часто они вместе побеждают.
+// Explorer считает это ~3 с; ограничиваем последними матчами по match_id, иначе запрос не успевает.
+const SYNERGY_TTL = 24 * 3600e3;
+const synergy = id => api("/explorer?sql=" + encodeURIComponent(
+  `SELECT pm2.hero_id, count(*) games, sum(((pm1.player_slot < 128) = m.radiant_win)::int) wins
+   FROM matches m
+   JOIN player_matches pm1 ON pm1.match_id = m.match_id AND pm1.hero_id = ${+id}
+   JOIN player_matches pm2 ON pm2.match_id = m.match_id AND (pm2.player_slot < 128) = (pm1.player_slot < 128) AND pm2.hero_id <> ${+id}
+   WHERE m.match_id > (SELECT max(match_id) - 400000000 FROM matches)
+   GROUP BY pm2.hero_id`), SYNERGY_TTL).then(d => {
+  if (!d || d.err || !d.rows) throw new Error(d && d.err || "нет данных");
+  return d.rows;
+});
 const itemPop = id => api(`/heroes/${id}/itemPopularity`, BUILD_TTL);
 const proMatches = id => api(`/heroes/${id}/matches`, 3600e3);
 
@@ -1059,12 +1075,28 @@ async function renderRecs() {
   box.innerHTML = `<div class="loading">Считаю…</div>`;
   try {
     const allies = picked(draft.a), enemies = picked(draft.e);
-    const tables = await Promise.all(enemies.map(async e => {
-      const t = {};
-      for (const m of await matchups(e)) t[m.hero_id] = m;
-      return t;
-    }));
+    const [tables, synTables] = await Promise.all([
+      Promise.all(enemies.map(async e => {
+        const t = {};
+        for (const m of await matchups(e)) t[m.hero_id] = m;
+        return t;
+      })),
+      // синергия с союзниками; если Explorer не ответил — просто без неё
+      Promise.all(allies.map(a => synergy(a).then(rows => {
+        const t = {}; let g = 0, w = 0;
+        for (const r of rows) { t[r.hero_id] = { g: +r.games, w: +r.wins }; g += +r.games; w += +r.wins; }
+        return { t, base: g ? w / g : 0.5 };
+      }).catch(() => null))),
+    ]);
     if (token !== recsToken) return;
+    const synFailed = allies.length && synTables.every(x => !x);
+    // чего не хватает команде: роли и тип урона
+    const allyHeroes = allies.map(a => HEROES[a]).filter(Boolean);
+    const missingRoles = allyHeroes.length ? NEEDED_ROLES.filter(r => r !== "Carry" || draft.me !== 0)
+      .filter(r => !allyHeroes.some(a => (a.roles || []).includes(r))) : [];
+    const physN = allyHeroes.filter(a => THREAT_SETS.physical.has(a.localized_name)).length;
+    const magN = allyHeroes.filter(a => THREAT_SETS.magic.has(a.localized_name)).length;
+    const needDmg = allyHeroes.length >= 2 ? (magN === 0 ? "magic" : physN === 0 ? "physical" : null) : null;
     const taken = new Set([...allies, ...enemies]);
     const recs = [];
     for (const h of HERO_LIST) {
@@ -1078,7 +1110,19 @@ async function renderRecs() {
       });
       const hi = pub(h, HIGH);
       const meta = hi.p >= MIN_PUB_PICKS ? (hi.wr - 50) * META_WEIGHT : 0;
-      recs.push({ h, parts, meta, score: parts.reduce((s, p) => s + p.v, 0) + meta });
+      // насколько чаще союзник A побеждает, когда X в его команде (относительно его обычного винрейта)
+      const syn = allies.map((a, i) => {
+        const s = synTables[i];
+        if (!s) return null;
+        const m = s.t[h.id] || { g: 0, w: 0 };
+        return { a, g: m.g, v: ((m.w + SYNERGY_PRIOR * s.base) / (m.g + SYNERGY_PRIOR) - s.base) * 100 * SYNERGY_WEIGHT };
+      }).filter(Boolean);
+      // закрывает то, чего нет в команде
+      const fills = missingRoles.filter(r => (h.roles || []).includes(r)).slice(0, 2).map(r => ROLE_RU[r].toLowerCase());
+      if (needDmg && THREAT_SETS[needDmg].has(h.localized_name)) fills.push(needDmg === "magic" ? "магический урон" : "физический урон");
+      const team = fills.length * FILL_BONUS;
+      recs.push({ h, parts, meta, syn, fills, team,
+        score: parts.reduce((s, p) => s + p.v, 0) + syn.reduce((s, p) => s + p.v, 0) + team + meta });
     }
     recs.sort((a, b) => b.score - a.score);
 
@@ -1114,13 +1158,17 @@ async function renderRecs() {
       const det = r.parts.slice().sort((a, b) => b.v - a.v).slice(0, 3)
         .map(p => `${esc(HEROES[p.e].localized_name)} <span class="${p.v >= 0 ? "good" : "bad"}">${sign(p.v)}</span>`);
       det.push(`мета <span class="${r.meta >= 0 ? "good" : "bad"}">${sign(r.meta)}</span>`);
+      const synLine = r.syn.length ? `<div class="det">🤝 ${r.syn.slice().sort((a, b) => b.v - a.v)
+        .map(p => `с ${esc(HEROES[p.a].localized_name)} <span class="${p.v >= 0 ? "good" : "bad"}">${sign(p.v)}</span>`).join(" · ")}</div>` : "";
+      const fillLine = r.fills.length ? `<div class="det">🧩 закрывает: ${r.fills.map(esc).join(", ")} <span class="good">+${r.team.toFixed(1)}</span></div>` : "";
       const allGood = r.parts.length >= 2 && r.parts.every(p => p.v >= 1);
+      const teamGood = r.syn.length >= 1 && r.syn.every(p => p.v >= 2);
       const safety = unknown === 0 || r.risk == null ? ""
         : r.counters.length ? `<div class="risk bad">⚠️ контрят: ${r.counters.map(esc).join(", ")}</div>`
         : r.risk < 4 ? `<div class="risk good">✅ мало контрпиков</div>` : "";
       return `<button class="rec" data-id="${r.h.id}"><img loading="lazy" src="${heroImg(r.h)}" alt="">
-        <div class="mid"><div class="nm">${esc(r.h.localized_name)}${allGood ? ` <span class="badge">контрит всех видимых</span>` : ""}</div>
-          <div class="det">${det.join(" · ")}</div>${safety}</div>
+        <div class="mid"><div class="nm">${esc(r.h.localized_name)}${allGood ? ` <span class="badge">контрит всех видимых</span>` : ""}${teamGood ? ` <span class="badge">хорош с командой</span>` : ""}</div>
+          ${r.parts.length || r.meta ? `<div class="det">⚔️ ${det.join(" · ")}</div>` : ""}${synLine}${fillLine}${safety}</div>
         <div class="sc ${r.score >= 0 ? "good" : "bad"}">${sign(r.score)}</div></button>`;
     }).join("") || `<div class="muted">Нет подходящих героев, попробуй другую роль.</div>`;
 
@@ -1128,7 +1176,9 @@ async function renderRecs() {
       const missing = NEEDED_ROLES.filter(r => !allies.some(a => (HEROES[a].roles || []).includes(r)));
       if (missing.length) html += `<div class="warn">⚠️ В команде нет: <b>${missing.map(r => ROLE_RU[r].toLowerCase()).join(", ")}</b>. Учти это при пике.</div>`;
     }
-    html += `<p class="muted" style="margin-bottom:0">👆 Нажми на героя — покажу билд под этот драфт.<br>Оценка: преимущество против каждого видимого врага в про-матчах (п.п. винрейта) + сила героя в мете` +
+    if (synFailed) html += `<div class="warn">Не удалось загрузить, кто с кем хорошо играет (сервер OpenDota перегружен) — советую без учёта синергии с командой.</div>`;
+    html += `<p class="muted" style="margin-bottom:0">👆 Нажми на героя — покажу билд под этот драфт.<br>Оценка: ⚔️ преимущество против каждого видимого врага в про-матчах (п.п. винрейта) + сила в мете` +
+      (allies.length ? ` + 🤝 насколько чаще твои союзники побеждают вместе с этим героем + 🧩 то, чего не хватает команде` : "") +
       (unknown > 0 ? ` − риск, что его законтрят оставшимися пиками.` : `.`) + `</p>`;
     box.innerHTML = html;
   } catch (e) {
