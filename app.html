@@ -835,8 +835,10 @@ const THREATS = {
   passive: ["Anti-Mage", "Axe", "Bristleback", "Chaos Knight", "Faceless Void", "Huskar", "Juggernaut", "Lifestealer",
     "Mars", "Phantom Assassin", "Slardar", "Spectre", "Tidehunter", "Timbersaw", "Troll Warlord", "Ursa", "Viper",
     "Wraith King"],
-  spam: ["Batrider", "Bristleback", "Death Prophet", "Earth Spirit", "Ember Spirit", "Huskar", "Invoker", "Jakiro",
-    "Leshrac", "Ogre Magi", "Puck", "Skywrath Mage", "Storm Spirit", "Timbersaw", "Tinker", "Venomancer", "Viper",
+  // кто часто колдует → Magic Stick/Wand копит заряды. Не путать с автокастом на атаку (Burning Spear у Huskar,
+  // Poison Attack у Viper) — такие навыки зарядов не дают, поэтому этих героев здесь нет.
+  spam: ["Batrider", "Bristleback", "Death Prophet", "Earth Spirit", "Ember Spirit", "Invoker", "Jakiro",
+    "Leshrac", "Ogre Magi", "Puck", "Skywrath Mage", "Storm Spirit", "Timbersaw", "Tinker", "Venomancer",
     "Void Spirit", "Zeus"],
 };
 // Опасные заклинания «в одну цель» — их блокирует Linken's Sphere и отражает Lotus Orb
