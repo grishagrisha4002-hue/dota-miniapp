@@ -547,19 +547,62 @@ document.addEventListener("click", e => {
 });
 renderChannelCards();
 
-async function api(path, ttl) {
+// fetch с ограничением по времени: OpenDota иногда не отвечает минутами — не ждём его вечно
+async function fetchT(url, ms, opts = {}) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(url, { ...opts, signal: ctl.signal }); }
+  finally { clearTimeout(timer); }
+}
+const delay = ms => new Promise(r => setTimeout(r, ms));
+
+/* Копия данных OpenDota, которую сервер кладёт рядом с приложением (mirror.py): герои, матчапы,
+   синергия. Берём её первой — быстро и не зависит от падений OpenDota; если её нет — идём в OpenDota. */
+const mirrorLoad = {};
+function mirror(name) {
+  if (!mirrorLoad[name]) {
+    mirrorLoad[name] = fetchT(`mirror/${name}?h=${Math.floor(Date.now() / 3600e3)}`, 12000)
+      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .catch(e => { delete mirrorLoad[name]; throw e; });
+  }
+  return mirrorLoad[name];
+}
+async function fromMirror(path) {
+  if (path === "/heroStats") {
+    const d = await mirror("herostats.json");
+    if (Array.isArray(d) && d.length > 100) return d;
+  }
+  const m = path.match(/^\/heroes\/(\d+)\/matchups$/);
+  if (m) {
+    const rows = ((await mirror("matchups.json")).heroes || {})[m[1]];
+    if (rows && rows.length) return rows.map(([hero_id, games_played, wins]) => ({ hero_id, games_played, wins }));
+  }
+  return null;
+}
+
+// «Предохранитель»: если OpenDota не ответил, 90 секунд к нему не ходим — сразу берём то, что есть
+let odDownUntil = 0;
+async function api(path, ttl, timeout = 8000) {
   const now = Date.now();
   const hit = mem[path] || lsGet("od:" + path);
   if (hit && now - hit.t < ttl) return (mem[path] = hit).data;
+  const keep = data => { mem[path] = { t: now, data }; lsSet("od:" + path, mem[path]); return data; };
+  const slowOk = path.startsWith("/explorer");   // Explorer бывает медленным и при живом OpenDota
   try {
-    const r = await fetch(API + path);
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const data = await r.json();
-    mem[path] = { t: now, data };
-    lsSet("od:" + path, mem[path]);
-    return data;
+    const m = await fromMirror(path);
+    if (m) return keep(m);
+  } catch (e) { /* копии нет — идём в OpenDota */ }
+  try {
+    if (Date.now() < odDownUntil) throw new Error("OpenDota недоступен");
+    const r = await fetchT(API + path, timeout);
+    if (!r.ok) {
+      if ((r.status >= 500 || r.status === 429) && !slowOk) odDownUntil = Date.now() + 90e3;
+      throw new Error("HTTP " + r.status);
+    }
+    return keep(await r.json());
   } catch (err) {
-    if (hit) return hit.data;            // нет сети — отдадим старые данные
+    if ((err.name === "AbortError" || err instanceof TypeError) && !slowOk) odDownUntil = Date.now() + 90e3;
+    if (hit) return hit.data;            // OpenDota не ответил — отдадим старые данные
     throw err;
   }
 }
@@ -583,13 +626,19 @@ const matchups = id => api(`/heroes/${id}/matchups`, BUILD_TTL);
 // С кем герой играет в одной команде в про-матчах и как часто они вместе побеждают.
 // Explorer считает это ~3 с; ограничиваем последними матчами по match_id, иначе запрос не успевает.
 const SYNERGY_TTL = 24 * 3600e3;
-const synergy = id => api("/explorer?sql=" + encodeURIComponent(
+// сначала копия с сервера (mirror/synergy.json), если там нет — Explorer, но не дольше 8 секунд
+const synergy = id => mirror("synergy.json").then(d => {
+  const rows = (d.heroes || {})[id];
+  if (!rows || !rows.length) throw new Error("нет в копии");
+  return rows.map(([hero_id, games, wins]) => ({ hero_id, games, wins }));
+}).catch(() => synergyExplorer(id));
+const synergyExplorer = id => api("/explorer?sql=" + encodeURIComponent(
   `SELECT pm2.hero_id, count(*) games, sum(((pm1.player_slot < 128) = m.radiant_win)::int) wins
    FROM matches m
    JOIN player_matches pm1 ON pm1.match_id = m.match_id AND pm1.hero_id = ${+id}
    JOIN player_matches pm2 ON pm2.match_id = m.match_id AND (pm2.player_slot < 128) = (pm1.player_slot < 128) AND pm2.hero_id <> ${+id}
    WHERE m.match_id > (SELECT max(match_id) - 400000000 FROM matches)
-   GROUP BY pm2.hero_id`), SYNERGY_TTL).then(d => {
+   GROUP BY pm2.hero_id`), SYNERGY_TTL, 8000).then(d => {
   if (!d || d.err || !d.rows) throw new Error(d && d.err || "нет данных");
   return d.rows;
 });
@@ -1828,27 +1877,34 @@ function renderDraft() {
 }
 
 let recsToken = 0;
-async function renderRecs() {
+async function renderRecs(isRetry = false) {
   const token = ++recsToken;
   const box = $("#recs");
   box.innerHTML = `<div class="loading">Считаю…</div>`;
   try {
     const allies = picked(draft.a), enemies = picked(draft.e);
+    // синергия с союзниками: если не пришла за 7 секунд — считаем без неё, а когда придёт — пересчитаем
+    const synAll = Promise.all(allies.map(a => synergy(a).then(rows => {
+      const t = {}; let g = 0, w = 0;
+      for (const r of rows) { t[r.hero_id] = { g: +r.games, w: +r.wins }; g += +r.games; w += +r.wins; }
+      return { t, base: g ? w / g : 0.5 };
+    }).catch(() => null)));
     const [tables, synTables] = await Promise.all([
+      // матчапы врагов; если данных нет — советы без контрпиков, но не висим
       Promise.all(enemies.map(async e => {
         const t = {};
-        for (const m of await matchups(e)) t[m.hero_id] = m;
+        for (const m of await matchups(e).catch(() => [])) t[m.hero_id] = m;
         return t;
       })),
-      // синергия с союзниками; если Explorer не ответил — просто без неё
-      Promise.all(allies.map(a => synergy(a).then(rows => {
-        const t = {}; let g = 0, w = 0;
-        for (const r of rows) { t[r.hero_id] = { g: +r.games, w: +r.wins }; g += +r.games; w += +r.wins; }
-        return { t, base: g ? w / g : 0.5 };
-      }).catch(() => null))),
+      Promise.race([synAll, delay(isRetry ? 15000 : 7000).then(() => null)]),
     ]);
     if (token !== recsToken) return;
-    const synFailed = allies.length && synTables.every(x => !x);
+    const synLate = allies.length && !synTables;
+    // синергия догрузится в кэш — пересчитаем один раз (без новых ожиданий)
+    if (synLate && !isRetry) synAll.then(() => { if (token === recsToken) renderRecs(true); });
+    const syns = synTables || allies.map(() => null);
+    const countersMissing = enemies.length && tables.every(t => !Object.keys(t).length);
+    const synFailed = allies.length && !synLate && syns.every(x => !x);
     // чего не хватает команде: роли и тип урона
     const allyHeroes = allies.map(a => HEROES[a]).filter(Boolean);
     const missingRoles = allyHeroes.length ? NEEDED_ROLES.filter(r => r !== "Carry" || draft.me !== 0)
@@ -1871,7 +1927,7 @@ async function renderRecs() {
       const meta = hi.p >= MIN_PUB_PICKS ? (hi.wr - 50) * META_WEIGHT : 0;
       // насколько чаще союзник A побеждает, когда X в его команде (относительно его обычного винрейта)
       const syn = allies.map((a, i) => {
-        const s = synTables[i];
+        const s = syns[i];
         if (!s) return null;
         const m = s.t[h.id] || { g: 0, w: 0 };
         return { a, g: m.g, v: ((m.w + SYNERGY_PRIOR * s.base) / (m.g + SYNERGY_PRIOR) - s.base) * 100 * SYNERGY_WEIGHT };
@@ -1935,6 +1991,8 @@ async function renderRecs() {
       const missing = NEEDED_ROLES.filter(r => !allies.some(a => (HEROES[a].roles || []).includes(r)));
       if (missing.length) html += `<div class="warn">⚠️ В команде нет: <b>${missing.map(r => ROLE_RU[r].toLowerCase()).join(", ")}</b>. Учти это при пике.</div>`;
     }
+    if (countersMissing) html += `<div class="warn">⚠️ Статистика «кто кого контрит» сейчас не загрузилась (сервер OpenDota не отвечает) — советую по мете и составу команды. Попробуй чуть позже.</div>`;
+    if (synLate) html += `<div class="warn">⏳ Догружаю, кто с кем хорошо играет, — советы обновятся сами.</div>`;
     if (synFailed) html += `<div class="warn">Не удалось загрузить, кто с кем хорошо играет (сервер OpenDota перегружен) — советую без учёта синергии с командой.</div>`;
     html += `<p class="muted" style="margin-bottom:0">👆 Нажми на героя — покажу билд под этот драфт.<br>Оценка: ⚔️ преимущество против каждого видимого врага в про-матчах (п.п. винрейта) + сила в мете` +
       (allies.length ? ` + 🤝 насколько чаще твои союзники побеждают вместе с этим героем + 🧩 то, чего не хватает команде` : "") +
