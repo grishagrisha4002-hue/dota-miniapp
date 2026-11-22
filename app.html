@@ -102,6 +102,24 @@
   .bal .ti { color: var(--text); opacity: .75; }
   .bal .tidle { color: var(--hint); font-style: italic; }
   .build .legend { margin-top: 10px; font-size: 11px; }
+  /* ---- значки на иконках предметов и карточка предмета ---- */
+  .item[data-k], .bal[data-k] { cursor: pointer; }
+  .item .ic { position: relative; display: block; }
+  .ibadge { position: absolute; left: 2px; top: 2px; font-style: normal; font-size: 11px; line-height: 1;
+    background: rgba(0,0,0,.7); border-radius: 4px; padding: 1px 2px; }
+  #item-card { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.5); display: none;
+    align-items: flex-end; justify-content: center; }
+  #item-card.open { display: flex; }
+  #item-card .sheet { position: relative; width: 100%; max-width: 520px; background: var(--bg2);
+    border-radius: 16px 16px 0 0; padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); font-size: 14px; line-height: 1.45; }
+  #item-card .ic-close { position: absolute; right: 12px; top: 10px; font-size: 18px; color: var(--hint); }
+  .ic-head { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+  .ic-head img { width: 64px; height: 46px; border-radius: 8px; object-fit: cover; background: #000; }
+  .ic-head b { font-size: 17px; }
+  .ic-what { margin-bottom: 8px; }
+  .ic-need { color: var(--bad); font-weight: 600; }
+  .ic-idle { color: var(--hint); }
+  .ic-core { color: var(--good); }
   .guide-btn { display: block; width: 100%; margin: 0 0 4px; padding: 11px 12px; border-radius: 12px;
     background: var(--card); text-align: left; font-weight: 600; font-size: 14px;
     border: 1px solid rgba(127,127,127,.25); }
@@ -237,6 +255,11 @@
 </section>
 
 <section class="view" id="view-hero"></section>
+
+<div id="item-card"><div class="sheet">
+  <button class="ic-close" onclick="closeItemCard()">✕</button>
+  <div id="item-card-body"></div>
+</div></div>
 
 <div id="picker">
   <div class="top">
@@ -586,12 +609,74 @@ const ITEM_GUIDE = {
   cyclone: { what: "поднимает в воздух: снимает с себя немоту и замедления, сбивает врагу заклинания", tags: ["silence"] },
   force_staff: { what: "толкает тебя или союзника вперёд — помогает сбежать из ловушки", tags: ["disable"] },
   magic_wand: { what: "копит заряды от заклинаний врагов рядом и разом лечит", tags: ["spam"] },
+
+  // --- основные предметы (берут почти всегда, не по ситуации)
+  power_treads: { what: "сапоги, которые дают выбранный атрибут и скорость атаки" },
+  phase_boots: { what: "сапоги с рывком скорости и бонусом к атаке/броне" },
+  arcane_boots: { what: "сапоги, восстанавливающие ману тебе и союзникам" },
+  tranquil_boots: { what: "сапоги с быстрым передвижением и регенерацией здоровья" },
+  boots: { what: "обычные сапоги: скорость передвижения, потом улучшаются" },
+  travel_boots: { what: "сапоги с телепортом к любому союзному крипу или зданию" },
+  guardian_greaves: { what: "лечит и снимает плохие эффекты со всей команды" },
+  mekansm: { what: "лечит всю команду рядом" },
+  wraith_band: { what: "дешёвые статы для ловкача на линии" },
+  bracer: { what: "дешёвые статы и здоровье для силовика на линии" },
+  null_talisman: { what: "дешёвые статы и мана для героя-интеллектуала" },
+  bottle: { what: "запасает руны и восстанавливает здоровье/ману — главный предмет мидера" },
+  soul_ring: { what: "даёт ману ценой здоровья — помогает чаще колдовать на линии" },
+  falcon_blade: { what: "урон, здоровье и мана для раннего фарма" },
+  orb_of_corrosion: { what: "атаки замедляют и снижают броню — сильно на линии" },
+  hand_of_midas: { what: "превращает крипа в золото и опыт — ускоряет фарм" },
+  maelstrom: { what: "молнии от атак — быстрее фармить, потом станет Mjollnir" },
+  echo_sabre: { what: "двойной удар с замедлением" },
+  harpoon: { what: "притягивает к врагу и даёт двойной удар" },
+  blink: { what: "мгновенно переносит на небольшое расстояние — начать драку или сбежать" },
+  overwhelming_blink: { what: "блинк с уроном и замедлением по площади (для силовиков)" },
+  swift_blink: { what: "блинк с бонусом к ловкости и скорости (для ловкачей)" },
+  arcane_blink: { what: "блинк, ускоряющий заклинания (для героев-интеллектуалов)" },
+  desolator: { what: "атаки снижают броню — физический урон проходит сильнее" },
+  greater_crit: { what: "шанс критического удара — огромный физический урон" },
+  sange_and_yasha: { what: "здоровье, скорость атаки и передвижения" },
+  kaya_and_sange: { what: "здоровье и усиление заклинаний" },
+  yasha_and_kaya: { what: "скорость и усиление заклинаний" },
+  ultimate_scepter: { what: "Аганим — улучшает способности героя" },
+  ultimate_scepter_2: { what: "Аганим навсегда (без слота) — улучшает способности героя" },
+  aghanims_shard: { what: "Осколок Аганима — даёт или улучшает способность героя" },
+  octarine_core: { what: "уменьшает перезарядку заклинаний" },
+  aether_lens: { what: "увеличивает дальность заклинаний и даёт ману" },
+  ethereal_blade: { what: "делает цель бесплотной и усиливает магический урон по ней" },
+  dagon: { what: "мгновенный магический урон по цели" },
+  refresher: { what: "перезаряжает все способности — два ульта подряд" },
+  bloodstone: { what: "много маны и вампиризм от заклинаний" },
+  dragon_lance: { what: "дальность атаки и статы для героев дальнего боя" },
+  hurricane_pike: { what: "отталкивает от врага и даёт быстрые атаки по нему" },
+  mask_of_madness: { what: "быстрые атаки и вампиризм ценой брони" },
+  armlet: { what: "включаемая сила и урон ценой здоровья" },
+  vladmir: { what: "аура вампиризма и брони на команду" },
+  helm_of_the_overlord: { what: "подчиняет сильного нейтрального крипа" },
+  heart: { what: "очень много здоровья и регенерации" },
+  basher: { what: "шанс оглушить атакой" },
+  diffusal_blade: { what: "атаки сжигают ману, можно замедлить цель" },
+  nullifier: { what: "снимает с врага защитные эффекты (Ghost, Glimmer, Eul's)" },
+  aeon_disk: { what: "при низком здоровье даёт пару секунд неуязвимости — спасает от быстрого убийства" },
+  meteor_hammer: { what: "метеор по области — урон по героям и зданиям" },
+  wind_waker: { what: "улучшенный Eul's: можно поднять союзника и переместиться" },
+  holy_locket: { what: "усиливает лечение и может разом вылечить союзника" },
+  pavise: { what: "щит от физического урона для союзника" },
+  phylactery: { what: "мана, здоровье и дополнительный урон от заклинаний" },
+  devastator: { what: "Parasma: усиливает магический урон по цели после атак" },
+  angels_demise: { what: "Khanda: критический урон от заклинаний" },
+  disperser: { what: "сжигает ману и ускоряет союзника, снимая замедления" },
+  revenants_brooch: { what: "атаки наносят магический урон" },
+  wind_lace: { what: "дешёвая скорость передвижения" },
+  quelling_blade: { what: "больше урона по крипам — легче добивать" },
 };
 
 // Нужен ли ситуативный предмет в этом драфте и почему — для новичков
 function itemDraftNote(key, enemies) {
   const g = ITEM_GUIDE[key];
   if (!g) return null;
+  if (!g.tags || !g.tags.length) return { what: g.what, need: [], idle: "", core: true };   // основной предмет
   const who = [];
   for (const tag of g.tags) {
     for (const e of enemies) {
@@ -698,10 +783,46 @@ const ITEM_BY_KEY = () => Object.fromEntries(Object.values(ITEMS).map(it => [it.
 function buildItemsHTML(keys, byKey, subs = {}) {
   const counts = new Map();
   for (const k of keys) if (byKey[k]) counts.set(k, (counts.get(k) || 0) + 1);
-  return `<div class="items">${[...counts].map(([k, n]) => { const it = byKey[k]; return `<div class="item" title="${esc(it.dname)}">
-    <span class="ic"><img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">${n > 1 ? `<b class="cnt">×${n}</b>` : ""}</span>
+  return `<div class="items">${[...counts].map(([k, n]) => { const it = byKey[k]; return `<div class="item" data-k="${esc(k)}" title="${esc(it.dname)}">
+    <span class="ic"><img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">${n > 1 ? `<b class="cnt">×${n}</b>` : ""}${itemBadge(k)}</span>
     ${esc(it.dname)}${subs[k] ? `<span class="sub">${subs[k]}</span>` : ""}</div>`; }).join("")}</div>`;
 }
+
+/* ---- пояснения к предметам: значок на иконке и карточка по нажатию ---- */
+const draftEnemies = () => picked(draft.e).map(id => HEROES[id]).filter(Boolean);
+// 🎯 — предмет нужен против этих врагов, 💡 — ситуативный и в этом драфте не нужен
+function itemBadge(k) {
+  const enemies = draftEnemies();
+  const note = itemDraftNote(k, enemies);
+  if (!note || note.core) return "";
+  if (note.need.length) return `<i class="ibadge need" title="нужен в этом драфте">🎯</i>`;
+  return enemies.length ? `<i class="ibadge idle" title="в этом драфте можно не брать">💡</i>` : "";
+}
+function openItemCard(k) {
+  const it = ITEM_BY_KEY()[k];
+  if (!it) return;
+  const enemies = draftEnemies();
+  const note = itemDraftNote(k, enemies);
+  const verdict = !note ? `<div class="muted">Для этого предмета пояснения пока нет.</div>`
+    : note.core ? `<div class="ic-core">✅ Основной предмет — его берут почти в каждой игре, не зависит от врагов.</div>`
+    : note.need.length ? note.need.map(w => `<div class="ic-need">🎯 ${esc(w)}</div>`).join("")
+    : `<div class="ic-idle">💡 ${esc(note.idle)}</div>`;
+  $("#item-card-body").innerHTML = `
+    <div class="ic-head"><img src="${it.img ? CDN + it.img : ""}" alt=""><div><b>${esc(it.dname)}</b>
+      ${it.cost ? `<div class="muted">${fmt(it.cost)} золота</div>` : ""}</div></div>
+    ${note ? `<div class="ic-what">ℹ️ ${esc(note.what)}</div>` : ""}
+    ${verdict}
+    ${enemies.length ? `<div class="muted" style="margin-top:8px">Враги в драфте: ${enemies.map(e => esc(e.localized_name)).join(", ")}</div>` : ""}`;
+  $("#item-card").classList.add("open");
+  haptic();
+}
+function closeItemCard() { $("#item-card").classList.remove("open"); }
+document.addEventListener("click", e => {
+  if (e.target.closest("#item-card .sheet")) return;
+  if (e.target.closest("#item-card")) return closeItemCard();          // тап по затемнению — закрыть
+  const el = e.target.closest(".item[data-k], .bal[data-k]");
+  if (el) { e.stopPropagation(); openItemCard(el.dataset.k); }
+}, true);
 
 /* ---- варианты билдов: только про (itemPopularity + starts.json), без обычных пабликов ---- */
 const BOOT_KEYS = ["power_treads", "phase_boots", "arcane_boots", "tranquil_boots", "boots"];
@@ -937,7 +1058,7 @@ function balRowsHTML(rows, byKey, showTime, enemies) {
     const note = itemDraftNote(r.key, enemies);
     const need = note && !r.why.length ? note.need : [];
     const idle = note && !r.why.length && !need.length ? note.idle : "";
-    return `<div class="bal"><img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">
+    return `<div class="bal" data-k="${esc(r.key)}"><img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">
       <div class="bt"><b>${esc(it.dname)}</b>${showTime ? ` <span class="tm">${r.tKnown ? "~" : "≈"}${Math.round(r.t)} мин</span>` : ""}
         ${r.pro ? `<div class="tag tp">🏆 ${esc(r.pro)}</div>` : ""}
         ${r.why.map(w => `<div class="tag tc">🎯 ${esc(w)}</div>`).join("")}
@@ -968,7 +1089,8 @@ function proPlayersHTML(h, byKey) {
   }).join("");
   return `<h2>👤 Как собирают про и топ-200 Европы</h2>
     <div class="card build">${rows}
-      <div class="why">Сверху — стартовый закуп, ниже — большие предметы и минута покупки.</div></div>`;
+      <div class="why">Сверху — стартовый закуп, ниже — большие предметы и минута покупки.
+        Нажми на предмет — расскажу, что он делает и нужен ли он против твоих врагов (🎯 нужен, 💡 можно не брать).</div></div>`;
 }
 
 function draftBuildHTML(h, pop) {
@@ -1003,7 +1125,7 @@ function draftBuildHTML(h, pop) {
       <div class="st">⏱ Ранняя игра</div>${balRowsHTML(bal.early, byKey, false, enemies)}
       <div class="st">⚔️ Основа — по порядку покупки</div>${balRowsHTML(bal.core, byKey, true, enemies)}
       ${draftNote}
-      <div class="why legend">🏆 — так собирают про · 🎯 — нужно против этого драфта · ℹ️ — что делает предмет ·
+      <div class="why legend">Нажми на предмет — подробнее. 🏆 — так собирают про · 🎯 — нужно против этого драфта · ℹ️ — что делает предмет ·
         💡 — ситуативный, в этом драфте можно не брать · ~ — среднее время покупки у про, ≈ — примерная оценка</div>
     </div>
     ${proPlayersHTML(h, byKey)}
@@ -1012,6 +1134,7 @@ function draftBuildHTML(h, pop) {
         <div class="st">⏱ Ранняя игра</div>${varsHTML(earlies)}
         ${core.variants.length ? `<div class="st">⚔️ Основа героя</div>${varsHTML(core.variants, core.subs)}
           ${Object.keys(core.subs).length ? `<div class="why">Под предметом — когда его обычно покупают про.</div>` : ""}` : ""}
+        <div class="why">Нажми на предмет — расскажу, что он делает и нужен ли он против твоих врагов. В углу иконки: 🎯 — нужен в этом драфте, 💡 — можно не брать.</div>
       </div>
     </details>`;
 }
@@ -1025,7 +1148,7 @@ function pickItems(stage, late) {
 }
 function itemsHTML(list) {
   if (!list.length) return `<div class="muted">Нет данных</div>`;
-  return `<div class="items">${list.map(([it, n]) => `<div class="item" title="${esc(it.dname || it.key)}">
+  return `<div class="items">${list.map(([it, n]) => `<div class="item" data-k="${esc(it.key)}" title="${esc(it.dname || it.key)}">
     <img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">${esc(it.dname || it.key)}<br><b>${n}</b></div>`).join("")}</div>`;
 }
 function muHTML(rows) {
