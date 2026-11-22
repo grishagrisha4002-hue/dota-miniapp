@@ -1023,6 +1023,7 @@ async function loadStarts() {
   } catch (e) { STARTS = {}; }
   return STARTS;
 }
+const LADDER_WEIGHT = 0.35;   // вес пабов про/топ-ладдера относительно турнирных игр при выборе стартов
 const SUPPORT_START = new Set(["ward_observer", "ward_sentry", "ward_dispenser", "blood_grenade", "smoke_of_deceit"]);
 const START_ORDER = ["tango", "flask", "faerie_fire", "enchanted_mango", "clarity", "branches"];
 // порядок показа: сначала «характерные» предметы (топорик, цирклеты…), потом расходка
@@ -1049,7 +1050,8 @@ function realStartVariants(heroId, p, byKey) {
       if (!own.length) continue;
       const key = own.join(",");
       const c = cand.get(key) || { items: own, sup: false, team: false, pro: null, pub: null };
-      c.sup = c.sup || all.some(k => SUPPORT_START.has(k));
+      // саппортский старт — гранатка или сентри. Один Observer Ward мидеры тоже часто берут себе
+      c.sup = c.sup || all.some(k => k === "blood_grenade" || k === "ward_sentry" || k === "ward_dispenser");
       c.team = c.team || all.some(k => TEAM.has(k));
       const s = c[name] || (c[name] = { n: 0, w: 0, share: 0 });
       s.n += n; s.w += w; s.share = s.n / src.total;
@@ -1062,7 +1064,9 @@ function realStartVariants(heroId, p, byKey) {
   const isSup = c => c.sup;
   const byRole = list.filter(c => (p >= 3) === isSup(c));
   if (byRole.length) list = byRole;
-  const score = c => Math.max(c.pro ? c.pro.share : 0, c.pub ? c.pub.share : 0);
+  // приоритет — турнирные игры про; пабы про и топ-ладдера учитываются слабее
+  // доля пабов весит меньше и только при нормальной выборке (1–2 игры дают «100%» — это шум)
+  const score = c => (c.pro ? c.pro.share : 0) + LADDER_WEIGHT * (c.pub ? c.pub.share * Math.min(1, c.pub.n / 10) : 0);
   list.sort((a, b) => score(b) - score(a));
   // берём наборы, которые отличаются хотя бы двумя видами предметов
   const types = c => new Set(c.items);
@@ -1085,7 +1089,7 @@ function realStartVariants(heroId, p, byKey) {
 
 function startVariants(pop, lane, byKey, p) {
   // варды и смоки про-коры берут «на команду» — в личный стартовый билд их не ставим
-  const skip = new Set(["ward_dispenser", "smoke_of_deceit", "dust", ...(p <= 2 ? ["ward_observer", "ward_sentry"] : [])]);
+  const skip = new Set(["ward_dispenser", "smoke_of_deceit", "dust", ...(p <= 2 ? ["ward_observer", "ward_sentry", "blood_grenade"] : [])]);
   const rows = proRows(pop.start_game_items).filter(r => !skip.has(r.it.key));
   const games = Math.max(1, ...rows.map(r => r.n));          // танго берут почти все — ≈ число игр
   const share = k => { const r = rows.find(r => r.it.key === k); return r ? Math.round(r.n / games * 100) : 0; };
@@ -1310,10 +1314,24 @@ function draftBuildHTML(h, pop) {
   const { list, enemies, spam } = draftCounters(p, h);
   const lane = laneItems(p, h, spam);
   const timing = proTiming(h.id);               // когда про-игроки покупают предметы
-  const real = realStartVariants(h.id, p, byKey);
-  const starts = real && real.length ? real : startVariants(pop, lane, byKey, p);
-  const startsNote = real && real.length && STARTS.updated
-    ? `Реальные закупы до горна — как в гайдах про и топ-ладдера: турнирные матчи за ${STARTS.pro_days} дней` +
+  // Старт одним блоком: 1) самые популярные у про предметы (статистика про-матчей OpenDota),
+  // 2–3) реальные целые наборы из игр — турниры в приоритете, пабы про/топ-ладдера слабее
+  const real = realStartVariants(h.id, p, byKey) || [];
+  const fromPop = startVariants(pop, lane, byKey, p);
+  const popCnt = Object.fromEntries(proRows(pop.start_game_items).map(r => [r.it.key, r.n]));
+  const popV = fromPop[0] && fromPop[0].label.startsWith("⭐") ? {
+    label: "1️⃣ Самое популярное у про",
+    note: "по статистике про-матчей: " + [...new Set(fromPop[0].items)].filter(k => popCnt[k])
+      .sort((a, b) => popCnt[b] - popCnt[a]).slice(0, 3).map(k => `${byKey[k].dname} — ${fmt(popCnt[k])}`).join(", "),
+    items: sortStart(fromPop[0].items),
+  } : null;
+  const merged = popV ? [popV] : [];
+  for (const v of real) if (merged.length < 3 && !merged.some(m => sameItems(m.items, v.items))) merged.push(v);
+  if (merged.length < 2) for (const v of fromPop.slice(1)) if (merged.length < 3 && !merged.some(m => sameItems(m.items, v.items))) merged.push(v);
+  const starts = merged.map((v, i) => i === 0 && popV ? v
+    : { ...v, label: `${["1️⃣", "2️⃣", "3️⃣"][i]} ${v.label.startsWith("🧠") ? "Под драфт и позицию" : "Целый набор из игр про"}` });
+  const startsNote = STARTS && STARTS.updated
+    ? `Варианты 2–3 — реальные закупы до горна: турнирные матчи за ${STARTS.pro_days} дней (в приоритете)` +
       (STARTS.propub_games ? ` и ${fmt(STARTS.propub_games)} пабов про и топ-200 Европы` : "") + `. Обновлено ${STARTS.updated}.` : "";
   const earlies = earlyVariants(pop, timing, lane, byKey);
   const used = new Set([...lane.start, ...lane.early]);
@@ -1332,7 +1350,7 @@ function draftBuildHTML(h, pop) {
     <h2>Итоговый билд · ${p + 1} · ${POSITIONS[p]}</h2>
     ${myFits ? "" : `<p class="muted" style="margin-top:0">На твою позицию (${draft.me + 1} · ${POSITIONS[draft.me]}) этот герой обычно не ходит, поэтому билд для ${p + 1} · ${POSITIONS[p]}.</p>`}
     <div class="card build">
-      <div class="st">🛒 Старт — 3 варианта про и топ-ладдера</div>${varsHTML(starts)}
+      <div class="st">🛒 Старт — про в приоритете, затем топ-ладдер</div>${varsHTML(starts)}
       ${startsNote ? `<div class="why">${esc(startsNote)}</div>` : ""}
       <div class="st">⏱ Ранняя игра</div>${balRowsHTML(bal.early, byKey, false, enemies)}
       <div class="st">⚔️ Основа — по порядку покупки</div>${balRowsHTML(bal.core, byKey, true, enemies)}
@@ -1427,7 +1445,6 @@ async function openHero(id, push = true) {
     $("#hero-draft-build").innerHTML = draftBuildHTML(h, pop);
     $("#hero-build").innerHTML = `
       <details class="pro-items"><summary>📊 Что покупают про-игроки</summary>
-        <h2>Стартовый закуп</h2><div class="card">${itemsHTML(pickItems(pop.start_game_items, false))}</div>
         <h2>Ранняя игра</h2><div class="card">${itemsHTML(pickItems(pop.early_game_items, false))}</div>
         <h2>Мид-гейм</h2><div class="card">${itemsHTML(pickItems(pop.mid_game_items, true))}</div>
         <h2>Лейт</h2><div class="card">${itemsHTML(pickItems(pop.late_game_items, true))}</div>
