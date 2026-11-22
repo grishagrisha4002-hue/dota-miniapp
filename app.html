@@ -99,9 +99,12 @@
   .bal .tag { font-size: 12px; margin-top: 2px; line-height: 1.3; }
   .bal .tp { color: var(--hint); }
   .bal .tc { color: var(--bad); }
+  .bal .ti { color: var(--text); opacity: .75; }
+  .bal .tidle { color: var(--hint); font-style: italic; }
   .build .legend { margin-top: 10px; font-size: 11px; }
-  .guide-btn { display: block; width: 100%; margin-top: 10px; padding: 11px 12px; border-radius: 12px;
-    background: var(--card); text-align: left; font-weight: 600; font-size: 14px; }
+  .guide-btn { display: block; width: 100%; margin: 0 0 4px; padding: 11px 12px; border-radius: 12px;
+    background: var(--card); text-align: left; font-weight: 600; font-size: 14px;
+    border: 1px solid rgba(127,127,127,.25); }
   .guide-btn span { font-weight: 400; color: var(--hint); font-size: 12px; }
   .guide-btn:active { transform: scale(.98); }
   details.alt { margin-top: 10px; }
@@ -514,7 +517,95 @@ const THREATS = {
     "Leshrac", "Ogre Magi", "Puck", "Skywrath Mage", "Storm Spirit", "Timbersaw", "Tinker", "Venomancer", "Viper",
     "Void Spirit", "Zeus"],
 };
+// Опасные заклинания «в одну цель» — их блокирует Linken's Sphere и отражает Lotus Orb
+const TARGETED = {
+  "Axe": "Culling Blade", "Bane": "Fiend's Grip", "Batrider": "Flaming Lasso", "Beastmaster": "Primal Roar",
+  "Bloodseeker": "Rupture", "Bounty Hunter": "Track", "Chaos Knight": "Chaos Bolt", "Doom": "Doom",
+  "Dragon Knight": "Dragon Tail", "Grimstroke": "Soulbind", "Huskar": "Life Break", "Legion Commander": "Duel",
+  "Lich": "Frost Blast", "Lina": "Laguna Blade", "Lion": "Finger of Death и Hex", "Marci": "Dispose",
+  "Necrophos": "Reaper's Scythe", "Night Stalker": "Void", "Ogre Magi": "Fireblast",
+  "Outworld Devourer": "Astral Imprisonment", "Phantom Assassin": "Stifling Dagger", "Primal Beast": "Pulverize",
+  "Pudge": "Dismember", "Rubick": "Telekinesis", "Shadow Demon": "Disruption", "Shadow Shaman": "Hex",
+  "Skywrath Mage": "Ancient Seal", "Spirit Breaker": "Charge of Darkness", "Sven": "Storm Hammer",
+  "Tinker": "Laser", "Vengeful Spirit": "Magic Missile и Nether Swap", "Viper": "Viper Strike",
+  "Winter Wyvern": "Winter's Curse", "Zeus": "Lightning Bolt",
+};
+THREATS.targeted = Object.keys(TARGETED);
 const THREAT_SETS = Object.fromEntries(Object.entries(THREATS).map(([k, v]) => [k, new Set(v)]));
+
+// Против каких героев нужна та или иная угроза — простыми словами, для новичков
+const TAG_TEXT = {
+  magic: "героев с большим магическим уроном",
+  physical: "сильных героев, которые бьют с руки",
+  evasion: "героев с уклонением (по ним промахиваются)",
+  illusions: "героев с иллюзиями и призванными существами",
+  invis: "невидимых героев",
+  heal: "героев, которые сильно лечатся",
+  disable: "героев с большим количеством оглушений и контроля",
+  silence: "героев с немотой (не дают колдовать)",
+  mobile: "вёртких героев, которые легко убегают",
+  passive: "героев с сильными пассивными способностями",
+  spam: "героев, которые часто колдуют",
+  targeted: "героев с опасными заклинаниями в одну цель",
+};
+// Что делает предмет и против кого он ситуативен. Предметы без tags — обычные «основные».
+const ITEM_GUIDE = {
+  sphere: { what: "раз в ~14 с блокирует одно заклинание, наложенное прямо на тебя", tags: ["targeted"] },
+  lotus_orb: { what: "отражает заклинания, наложенные на тебя или союзника, обратно во врага", tags: ["targeted", "silence"] },
+  black_king_bar: { what: "на несколько секунд даёт иммунитет к магии и большинству оглушений", tags: ["magic", "disable"] },
+  monkey_king_bar: { what: "твои атаки не промахиваются", tags: ["evasion"] },
+  silver_edge: { what: "невидимость и удар, отключающий пассивные способности врага", tags: ["passive"] },
+  pipe: { what: "щит от магического урона на всю команду", tags: ["magic"] },
+  glimmer_cape: { what: "невидимость и защита от магии для себя или союзника", tags: ["magic"] },
+  eternal_shroud: { what: "щит от магии, урон по тебе восстанавливает ману", tags: ["magic"] },
+  mage_slayer: { what: "снижает урон заклинаний того, кого ты бьёшь", tags: ["magic"] },
+  ghost: { what: "на 4 с тебя нельзя бить с руки", tags: ["physical"] },
+  blade_mail: { what: "возвращает урон тем, кто тебя бьёт", tags: ["physical"] },
+  crimson_guard: { what: "блок физического урона на всю команду", tags: ["physical", "illusions"] },
+  solar_crest: { what: "броня союзнику или снятие брони с врага", tags: ["physical"] },
+  butterfly: { what: "уклонение от атак и скорость атаки", tags: ["physical"] },
+  satanic: { what: "сильный вампиризм — переживаешь драки с героями, бьющими с руки", tags: ["physical"] },
+  heavens_halberd: { what: "обезоруживает вражеского керри на 3 с", tags: ["physical"] },
+  assault: { what: "броня тебе и команде, снижает броню врагов рядом", tags: ["physical"] },
+  shivas_guard: { what: "аура: замедляет атаки врагов, режет их лечение, урон по площади", tags: ["physical", "illusions", "heal"] },
+  spirit_vessel: { what: "режет лечение врага и наносит урон от его здоровья", tags: ["heal"] },
+  skadi: { what: "атаки замедляют и режут лечение врага", tags: ["heal"] },
+  mjollnir: { what: "молнии бьют сразу по нескольким целям", tags: ["illusions"] },
+  bfury: { what: "атаки бьют по площади — быстро убивают иллюзии и крипов", tags: ["illusions"] },
+  radiance: { what: "жжёт всех врагов вокруг тебя", tags: ["illusions"] },
+  dust: { what: "на 12 с показывает невидимых рядом", tags: ["invis"] },
+  ward_sentry: { what: "7 минут показывает невидимых в области", tags: ["invis"] },
+  gem: { what: "постоянно видит невидимых вокруг (выпадает при смерти)", tags: ["invis"] },
+  orchid: { what: "немота на цель — не даёт ей колдовать и убежать", tags: ["mobile"] },
+  bloodthorn: { what: "немота на цель и гарантированные криты по ней", tags: ["mobile"] },
+  sheepstick: { what: "превращает врага в овцу: не бьёт, не колдует, не убегает", tags: ["mobile"] },
+  rod_of_atos: { what: "обездвиживает цель — она не убежит", tags: ["mobile"] },
+  gungir: { what: "обездвиживает врагов в области", tags: ["mobile"] },
+  abyssal_blade: { what: "оглушает цель даже сквозь иммунитет к магии", tags: ["mobile"] },
+  manta: { what: "иллюзии и снятие с себя немоты и замедлений", tags: ["silence"] },
+  cyclone: { what: "поднимает в воздух: снимает с себя немоту и замедления, сбивает врагу заклинания", tags: ["silence"] },
+  force_staff: { what: "толкает тебя или союзника вперёд — помогает сбежать из ловушки", tags: ["disable"] },
+  magic_wand: { what: "копит заряды от заклинаний врагов рядом и разом лечит", tags: ["spam"] },
+};
+
+// Нужен ли ситуативный предмет в этом драфте и почему — для новичков
+function itemDraftNote(key, enemies) {
+  const g = ITEM_GUIDE[key];
+  if (!g) return null;
+  const who = [];
+  for (const tag of g.tags) {
+    for (const e of enemies) {
+      if (!(THREAT_SETS[tag] && THREAT_SETS[tag].has(e.localized_name))) continue;
+      const label = tag === "targeted" ? `${e.localized_name} (${TARGETED[e.localized_name]})` : e.localized_name;
+      if (!who.some(w => w.startsWith(e.localized_name))) who.push(label);   // один герой — одно упоминание
+    }
+  }
+  const need = who.length ? [`нужен против ${who.join(", ")}`] : [];
+  const examples = tag => (tag === "targeted" ? ["Spirit Breaker", "Lion", "Doom"] : THREATS[tag].slice(0, 3)).join(", ");
+  const idle = `Ситуативный: берут против ${g.tags.map(t => `${TAG_TEXT[t]} (${examples(t)})`).join(" или ")}.` +
+    (enemies.length ? " В этом драфте таких нет — можно заменить на другой предмет." : " Добавь врагов — скажу, нужен ли он.");
+  return { what: g.what, need, idle };
+}
 
 // Ответ на угрозу: какой предмет брать на каждой позиции (p — 0..4, h — твой герой).
 const melee = h => h.attack_type === "Melee";
@@ -548,6 +639,8 @@ const COUNTERS = [
       : p === 0 ? (melee(h) ? "abyssal_blade" : "bloodthorn") : p === 1 ? "orchid" : "rod_of_atos" },
   { tag: "passive", min: 1, why: "сильные пассивки — Break их отключит",
     item: (p, h) => p <= 2 && attacker(h, p) ? "silver_edge" : null },
+  { tag: "targeted", min: 2, why: "много опасных заклинаний в одну цель",
+    item: (p, h) => p <= 1 ? "sphere" : p <= 3 ? "lotus_orb" : null },
 ];
 
 const ATTR_ITEM = { str: "gauntlets", agi: "slippers", int: "mantle", all: "circlet" };
@@ -837,13 +930,20 @@ function balancedBuild(p, h, pop, pubAll, counters, spam, byKey) {
   return { early: [...early.values()], core };
 }
 
-function balRowsHTML(rows, byKey, showTime) {
+function balRowsHTML(rows, byKey, showTime, enemies) {
   return rows.map(r => {
     const it = byKey[r.key];
+    // для ситуативных предметов: что делает и нужен ли он против этих врагов
+    const note = itemDraftNote(r.key, enemies);
+    const need = note && !r.why.length ? note.need : [];
+    const idle = note && !r.why.length && !need.length ? note.idle : "";
     return `<div class="bal"><img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">
       <div class="bt"><b>${esc(it.dname)}</b>${showTime ? ` <span class="tm">${r.tKnown ? "~" : "≈"}${Math.round(r.t)} мин</span>` : ""}
         ${r.pro ? `<div class="tag tp">🏆 ${esc(r.pro)}</div>` : ""}
-        ${r.why.map(w => `<div class="tag tc">🎯 ${esc(w)}</div>`).join("")}</div></div>`;
+        ${r.why.map(w => `<div class="tag tc">🎯 ${esc(w)}</div>`).join("")}
+        ${need.map(w => `<div class="tag tc">🎯 ${esc(w)}</div>`).join("")}
+        ${note ? `<div class="tag ti">ℹ️ ${esc(note.what)}</div>` : ""}
+        ${idle ? `<div class="tag tidle">💡 ${esc(idle)}</div>` : ""}</div></div>`;
   }).join("");
 }
 
@@ -900,14 +1000,12 @@ function draftBuildHTML(h, pop) {
     <div class="card build">
       <div class="st">🛒 Старт — 3 варианта про и топ-ладдера</div>${varsHTML(starts)}
       ${startsNote ? `<div class="why">${esc(startsNote)}</div>` : ""}
-      <div class="st">⏱ Ранняя игра</div>${balRowsHTML(bal.early, byKey, false)}
-      <div class="st">⚔️ Основа — по порядку покупки</div>${balRowsHTML(bal.core, byKey, true)}
+      <div class="st">⏱ Ранняя игра</div>${balRowsHTML(bal.early, byKey, false, enemies)}
+      <div class="st">⚔️ Основа — по порядку покупки</div>${balRowsHTML(bal.core, byKey, true, enemies)}
       ${draftNote}
-      <div class="why legend">🏆 — так собирают про · 🎯 — нужно против этого драфта ·
-        ~ — среднее время покупки у про, ≈ — примерная оценка</div>
+      <div class="why legend">🏆 — так собирают про · 🎯 — нужно против этого драфта · ℹ️ — что делает предмет ·
+        💡 — ситуативный, в этом драфте можно не брать · ~ — среднее время покупки у про, ≈ — примерная оценка</div>
     </div>
-    <button class="guide-btn" data-url="https://dota2protracker.com/hero/${encodeURIComponent(D2PT_NAMES[h.localized_name] || h.localized_name)}">
-      📘 Открыть гайд D2PT по ${esc(h.localized_name)} <span>· билды игроков 7000+ MMR</span></button>
     ${proPlayersHTML(h, byKey)}
     <details class="pro-items alt"><summary>🔀 Другие варианты: сапоги, основа</summary>
       <div class="card build">
@@ -970,6 +1068,8 @@ async function openHero(id, push = true) {
   v.innerHTML = `
     <div class="hero-head"><img src="${heroImg(h)}" alt="">
       <div class="over"><div class="t">${esc(h.localized_name)}</div><div class="s">${ATTRS[h.primary_attr] || ""} · ${esc(roles)}</div></div></div>
+    <button class="guide-btn" data-url="https://dota2protracker.com/hero/${encodeURIComponent(D2PT_NAMES[h.localized_name] || h.localized_name)}">
+      🔗 Открыть в Dota Pro Tracker <span>· гайд и билды игроков 7000+ MMR</span></button>
     <div id="hero-draft-build"><div class="loading">Собираю билд под драфт…</div></div>
     <h2>📈 Статистика</h2>
     <div class="stats">
