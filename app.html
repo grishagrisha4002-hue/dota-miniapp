@@ -100,6 +100,10 @@
   .bal .tp { color: var(--hint); }
   .bal .tc { color: var(--bad); }
   .build .legend { margin-top: 10px; font-size: 11px; }
+  .guide-btn { display: block; width: 100%; margin-top: 10px; padding: 11px 12px; border-radius: 12px;
+    background: var(--card); text-align: left; font-weight: 600; font-size: 14px; }
+  .guide-btn span { font-weight: 400; color: var(--hint); font-size: 12px; }
+  .guide-btn:active { transform: scale(.98); }
   details.alt { margin-top: 10px; }
   details.alt > .build { margin-top: 8px; }
   details.pro-items { margin-top: 18px; }
@@ -688,7 +692,7 @@ function realStartVariants(heroId, p, byKey) {
   const stat = (s, label) => s ? `${label}: ${Math.round(s.share * 100)}% (${fmt(s.n)} игр${s.n >= 10 ? `, ${Math.round(s.w / s.n * 100)}% побед` : ""})` : "";
   return chosen.map((c, i) => ({
     label: `${["1️⃣", "2️⃣", "3️⃣"][i]} Вариант ${i + 1}`,
-    note: [stat(c.pro, "🏆 турниры"), stat(c.pub, "👤 про вне турниров")].filter(Boolean).join(" · ") +
+    note: [stat(c.pro, "🏆 турниры"), stat(c.pub, "👤 про и топ-200 Европы в пабах")].filter(Boolean).join(" · ") +
       (c.team && p >= 3 ? " · + варды/смок на команду" : ""),
     items: sortStart(c.items),
   }));
@@ -845,6 +849,8 @@ function balRowsHTML(rows, byKey, showTime) {
 
 // Последние игры конкретных про-игроков на этом герое (starts.json → builds).
 // Формат записи: [имя, команда, время старта, победа 0/1, тип "pub"|"lobby"|"league", "старт,через,запятую", "предмет:минута,…"]
+// у D2PT некоторые герои называются иначе, чем в OpenDota
+const D2PT_NAMES = { "Outworld Devourer": "Outworld Destroyer" };
 const GAME_KIND = { pub: "паблик", lobby: "скрим/лобби", league: "турнир" };
 function proPlayersHTML(h, byKey) {
   const list = (((STARTS || {}).builds) || {})[h.id] || [];
@@ -875,8 +881,8 @@ function draftBuildHTML(h, pop) {
   const real = realStartVariants(h.id, p, byKey);
   const starts = real && real.length ? real : startVariants(pop, lane, byKey, p);
   const startsNote = real && real.length && STARTS.updated
-    ? `Реальные закупы до горна: турнирные матчи за ${STARTS.pro_days} дней` +
-      (STARTS.propub_games ? ` и ${fmt(STARTS.propub_games)} игр про-игроков вне турниров` : "") + `. Обновлено ${STARTS.updated}.` : "";
+    ? `Реальные закупы до горна — как в гайдах про и топ-ладдера: турнирные матчи за ${STARTS.pro_days} дней` +
+      (STARTS.propub_games ? ` и ${fmt(STARTS.propub_games)} пабов про и топ-200 Европы` : "") + `. Обновлено ${STARTS.updated}.` : "";
   const earlies = earlyVariants(pop, timing, lane, byKey);
   const used = new Set([...lane.start, ...lane.early]);
   const core = coreVariants(pop, timing, list, used, byKey);
@@ -892,7 +898,7 @@ function draftBuildHTML(h, pop) {
     <h2>⚖️ Итоговый билд · ${p + 1} · ${POSITIONS[p]}</h2>
     ${myFits ? "" : `<p class="muted" style="margin-top:0">На твою позицию (${draft.me + 1} · ${POSITIONS[draft.me]}) этот герой обычно не ходит, поэтому билд для ${p + 1} · ${POSITIONS[p]}.</p>`}
     <div class="card build">
-      <div class="st">🛒 Старт — 3 варианта про</div>${varsHTML(starts)}
+      <div class="st">🛒 Старт — 3 варианта про и топ-ладдера</div>${varsHTML(starts)}
       ${startsNote ? `<div class="why">${esc(startsNote)}</div>` : ""}
       <div class="st">⏱ Ранняя игра</div>${balRowsHTML(bal.early, byKey, false)}
       <div class="st">⚔️ Основа — по порядку покупки</div>${balRowsHTML(bal.core, byKey, true)}
@@ -900,6 +906,8 @@ function draftBuildHTML(h, pop) {
       <div class="why legend">🏆 — так собирают про · 🎯 — нужно против этого драфта ·
         ~ — среднее время покупки у про, ≈ — примерная оценка</div>
     </div>
+    <button class="guide-btn" data-url="https://dota2protracker.com/hero/${encodeURIComponent(D2PT_NAMES[h.localized_name] || h.localized_name)}">
+      📘 Открыть гайд D2PT по ${esc(h.localized_name)} <span>· билды игроков 7000+ MMR</span></button>
     ${proPlayersHTML(h, byKey)}
     <details class="pro-items alt"><summary>🔀 Другие варианты: сапоги, основа</summary>
       <div class="card build">
@@ -1001,6 +1009,8 @@ async function openHero(id, push = true) {
 }
 let currentHeroId = null;
 $("#view-hero").onclick = e => {
+  const g = e.target.closest(".guide-btn");
+  if (g) { haptic(); return tg && tg.openLink ? tg.openLink(g.dataset.url) : window.open(g.dataset.url, "_blank"); }
   const r = e.target.closest(".mu-row");
   if (r) { haptic(); return openHero(+r.dataset.id); }
   const m = e.target.closest(".match-row");
