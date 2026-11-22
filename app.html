@@ -1793,8 +1793,15 @@ async function openHero(id, push = true) {
   try {
     // без справочника предметов билд не нарисовать; остальное — по возможности
     // (если OpenDota не ответил, билд строится по нашим данным про-игр из starts.json)
+    // «Последние про-матчи» есть только в OpenDota — не ждём их дольше 2 секунд, дорисуем, когда придут
+    const pmAll = proMatches(id).catch(() => []);
     const [popRaw, mu, , pm] = await Promise.all([itemPop(id).catch(() => null), matchups(id).catch(() => []),
-      loadItems(), proMatches(id).catch(() => []), loadStarts()]);
+      loadItems(), Promise.race([pmAll, delay(2000).then(() => null)]), loadStarts()]);
+    if (pm === null) pmAll.then(list => {
+      if (currentHeroId !== id || !list.length || $("#hero-pro-matches")) return;
+      $("#hero-build").insertAdjacentHTML("beforeend",
+        `<div id="hero-pro-matches"><h2>Последние про-матчи</h2><div class="card">${matchesHTML(list.slice(0, 10))}</div></div>`);
+    });
     if (currentHeroId !== id) return;
     const pop = popRaw || {};
     const popNote = popRaw ? "" : `<div class="warn">⚠️ Статистика покупок про из OpenDota сейчас не загрузилась — билд собран по нашим данным про-игр. Загляни чуть позже, будет полнее.</div>`;
@@ -1811,7 +1818,7 @@ async function openHero(id, push = true) {
       </details>`) + `
       ${rows.some(r => r.wr < 50) ? `<h2 class="enemy">Тяжело против</h2><div class="card">${muHTML(rows.filter(r => r.wr < 50).slice(0, 5))}</div>` : ""}
       ${rows.some(r => r.wr > 50) ? `<h2 class="ally">Хорош против</h2><div class="card">${muHTML(rows.filter(r => r.wr > 50).reverse().slice(0, 5))}</div>` : ""}
-      ${pm.length ? `<h2>Последние про-матчи</h2><div class="card">${matchesHTML(pm.slice(0, 10))}</div>` : ""}`;
+      ${pm && pm.length ? `<div id="hero-pro-matches"><h2>Последние про-матчи</h2><div class="card">${matchesHTML(pm.slice(0, 10))}</div></div>` : ""}`;
   } catch (e) {
     if (currentHeroId === id) {
       $("#hero-draft-build").innerHTML = "";
