@@ -577,6 +577,16 @@ async function fromMirror(path) {
     const rows = ((await mirror("matchups.json")).heroes || {})[m[1]];
     if (rows && rows.length) return rows.map(([hero_id, games_played, wins]) => ({ hero_id, games_played, wins }));
   }
+  const ip = path.match(/^\/heroes\/(\d+)\/itemPopularity$/);
+  if (ip) {
+    const pop = ((await mirror("itempop.json")).heroes || {})[ip[1]];
+    if (pop && Object.keys(pop).length) return pop;
+  }
+  if (path === "/constants/items") {
+    // тот же справочник OpenDota, но с GitHub (через jsDelivr) — не зависит от падений api.opendota.com
+    const r = await fetchT("https://cdn.jsdelivr.net/gh/odota/dotaconstants@master/build/items.json", 15000);
+    if (r.ok) return r.json();
+  }
   return null;
 }
 
@@ -1781,27 +1791,31 @@ async function openHero(id, push = true) {
   showView("hero");
 
   try {
-    const [pop, mu, , pm] = await Promise.all([itemPop(id), matchups(id), loadItems(),
-      proMatches(id).catch(() => []), loadStarts()]);
+    // без справочника предметов билд не нарисовать; остальное — по возможности
+    // (если OpenDota не ответил, билд строится по нашим данным про-игр из starts.json)
+    const [popRaw, mu, , pm] = await Promise.all([itemPop(id).catch(() => null), matchups(id).catch(() => []),
+      loadItems(), proMatches(id).catch(() => []), loadStarts()]);
     if (currentHeroId !== id) return;
+    const pop = popRaw || {};
+    const popNote = popRaw ? "" : `<div class="warn">⚠️ Статистика покупок про из OpenDota сейчас не загрузилась — билд собран по нашим данным про-игр. Загляни чуть позже, будет полнее.</div>`;
     const rows = mu.filter(m => m.games_played >= MIN_MATCHUP_GAMES && HEROES[m.hero_id])
       .map(m => ({ h: HEROES[m.hero_id], wr: m.wins / m.games_played * 100, g: m.games_played }))
       .sort((a, b) => a.wr - b.wr);
-    $("#hero-draft-build").innerHTML = draftBuildHTML(h, pop);
-    $("#hero-build").innerHTML = `
+    $("#hero-draft-build").innerHTML = popNote + draftBuildHTML(h, pop);
+    $("#hero-build").innerHTML = (!popRaw ? "" : `
       <details class="pro-items"><summary>📊 Что покупают про-игроки</summary>
         <h2>Ранняя игра</h2><div class="card">${itemsHTML(pickItems(pop.early_game_items, false))}</div>
         <h2>Мид-гейм</h2><div class="card">${itemsHTML(pickItems(pop.mid_game_items, true))}</div>
         <h2>Лейт</h2><div class="card">${itemsHTML(pickItems(pop.late_game_items, true))}</div>
         <p class="muted">Под предметами — число про-матчей, в которых их покупали. Данные: OpenDota.</p>
-      </details>
+      </details>`) + `
       ${rows.some(r => r.wr < 50) ? `<h2 class="enemy">Тяжело против</h2><div class="card">${muHTML(rows.filter(r => r.wr < 50).slice(0, 5))}</div>` : ""}
       ${rows.some(r => r.wr > 50) ? `<h2 class="ally">Хорош против</h2><div class="card">${muHTML(rows.filter(r => r.wr > 50).reverse().slice(0, 5))}</div>` : ""}
       ${pm.length ? `<h2>Последние про-матчи</h2><div class="card">${matchesHTML(pm.slice(0, 10))}</div>` : ""}`;
   } catch (e) {
     if (currentHeroId === id) {
       $("#hero-draft-build").innerHTML = "";
-      $("#hero-build").innerHTML = `<div class="error">Не удалось загрузить закупы. Попробуй позже.</div>`;
+      $("#hero-build").innerHTML = `<div class="error">Не удалось загрузить справочник предметов. Проверь интернет и попробуй ещё раз.</div>`;
     }
   }
 }
