@@ -347,7 +347,7 @@
 <section class="view" id="view-heroes">
   <div class="eyebrow">Dota 2 · Hero Library</div>
   <h1>Герои</h1>
-  <input class="search" id="hero-search" placeholder="Поиск героя…" autocomplete="off">
+  <input class="search" id="hero-search" placeholder="Поиск: инвок, ам, сф, бара…" autocomplete="off">
   <div class="chips" id="hero-attrs"></div>
   <div class="chips" id="hero-sort"></div>
   <div class="grid" id="hero-grid"><div class="loading">Загружаю героев…</div></div>
@@ -372,7 +372,7 @@
   <div class="top">
     <div class="ttl"><b id="picker-title">Выбери героя</b><button id="picker-close">✕</button></div>
     <div id="picker-pos-wrap" hidden><div class="lbl">На какую позицию:</div><div class="chips" id="picker-pos"></div></div>
-    <input class="search" id="picker-search" placeholder="Поиск героя…" autocomplete="off">
+    <input class="search" id="picker-search" placeholder="Поиск: инвок, ам, сф, бара…" autocomplete="off">
     <div class="chips" id="picker-attrs"></div>
   </div>
   <div class="body"><div class="grid" id="picker-grid"></div></div>
@@ -547,7 +547,73 @@ function pub(h, brackets = [1, 2, 3, 4, 5, 6, 7, 8]) {
   return { p, w, wr: p ? w / p * 100 : null };
 }
 const proStat = h => ({ p: h.pro_pick || 0, w: h.pro_win || 0, wr: h.pro_pick ? h.pro_win / h.pro_pick * 100 : null });
-const norm = s => s.toLowerCase().replace(/[^a-z0-9а-яё]/g, "");
+const norm = s => String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[^a-z0-9а-я]/g, "");
+
+// Русские названия и сленг героев — для поиска («ам», «инвок», «сф», «бара», «квопа»…)
+const RU_ALIASES = {
+  "Abaddon": "абаддон абадон аба", "Alchemist": "алхимик алх", "Ancient Apparition": "аппарат апарат аа",
+  "Anti-Mage": "антимаг ам антик", "Arc Warden": "арк арк варден зет", "Axe": "акс топор",
+  "Bane": "бейн бэйн", "Batrider": "бэтрайдер бетрайдер бэт бет", "Beastmaster": "бистмастер бист бм",
+  "Bloodseeker": "бладсикер блад сикер", "Bounty Hunter": "баунти баунтихантер бх", "Brewmaster": "брюмастер брю панда",
+  "Bristleback": "бристлбек бристлбэк бристл еж", "Broodmother": "бруда бруд брудмазер паук",
+  "Centaur Warrunner": "кентавр кент цент", "Chaos Knight": "хаос хаоснайт чк хк", "Chen": "чен",
+  "Clinkz": "клинкз клинк", "Clockwerk": "клок клокверк", "Crystal Maiden": "цм цмка кристал кристалка мейден",
+  "Dark Seer": "дарк сир дарксир сир дс", "Dark Willow": "дарк виллоу виллоу вилоу", "Dawnbreaker": "даунбрейкер даун",
+  "Dazzle": "дазл даззл", "Death Prophet": "дп дез профет банши", "Disruptor": "дисраптор дизраптор трал",
+  "Doom": "дум", "Dragon Knight": "дк драгон драгоннайт", "Drow Ranger": "дров дровка трахес",
+  "Earth Spirit": "эрс ерс эс кабан", "Earthshaker": "шейкер шекер эш", "Elder Titan": "элдер титан ет",
+  "Ember Spirit": "эмбер ембер", "Enchantress": "энча энчантресс", "Enigma": "энигма",
+  "Faceless Void": "войд фв фейслес", "Grimstroke": "гримстрок грим", "Gyrocopter": "гиро гирокоптер",
+  "Hoodwink": "худвинк белка", "Huskar": "хускар хуск", "Invoker": "инвокер инвок карл",
+  "Io": "ио висп", "Jakiro": "джакиро джак", "Juggernaut": "джаггернаут джагернаут джагер джага джаг",
+  "Keeper of the Light": "котл кипер", "Kez": "кез", "Kunkka": "кунка адмирал",
+  "Largo": "ларго", "Legion Commander": "легион легионка лк", "Leshrac": "лешрак леш",
+  "Lich": "лич", "Lifestealer": "лайфстилер гуль лс", "Lina": "лина", "Lion": "лион",
+  "Lone Druid": "лон друид лондруид медведь", "Luna": "луна", "Lycan": "ликан волк",
+  "Magnus": "магнус магнат мага", "Marci": "марси", "Mars": "марс", "Medusa": "медуза дуза",
+  "Meepo": "мипо", "Mirana": "мирана мира потм", "Monkey King": "мк манки обезьяна мартышка",
+  "Morphling": "морф морфлинг", "Muerta": "муэрта муерта", "Naga Siren": "нага сирена",
+  "Nature's Prophet": "фурион пророк нп", "Necrophos": "некрофос некр некролит",
+  "Night Stalker": "нс найтсталкер сталкер баланар", "Nyx Assassin": "никс", "Ogre Magi": "огр огрмаги",
+  "Omniknight": "омни омник омнинайт", "Oracle": "оракл оракул",
+  "Outworld Devourer": "од аутворлд оутворлд аутворлддестроер", "Pangolier": "панго панголир",
+  "Phantom Assassin": "па фантомка фантомассасин мортред", "Phantom Lancer": "пл лансер фантомлансер",
+  "Phoenix": "феникс", "Primal Beast": "примал приму прималбист", "Puck": "пак", "Pudge": "пудж",
+  "Pugna": "пугна", "Queen of Pain": "квопа кьюп акаша", "Razor": "разор", "Riki": "рики",
+  "Ring Master": "рингмастер ринг", "Rubick": "рубик", "Sand King": "сенд сендкинг скорпион",
+  "Shadow Demon": "шд шадоудемон демон", "Shadow Fiend": "сф невер шадоуфинд",
+  "Shadow Shaman": "шаман раста рэкс", "Silencer": "сайленсер", "Skywrath Mage": "скай скайрат",
+  "Slardar": "слардар слар", "Slark": "сларк", "Snapfire": "снапфаер снэпфаер снап бабка",
+  "Sniper": "снайпер", "Spectre": "спектра спектр", "Spirit Breaker": "бара бык спиритбрейкер",
+  "Storm Spirit": "шторм", "Sven": "свен", "Techies": "течис течи минер",
+  "Templar Assassin": "та ланая темплар", "Terrorblade": "тб террорблейд", "Tidehunter": "тайд тайдхантер",
+  "Timbersaw": "тимбер пила", "Tinker": "тинкер", "Tiny": "тини тайни камень",
+  "Treant Protector": "трент дерево", "Troll Warlord": "тролль трол", "Tusk": "туск таск",
+  "Underlord": "андерлорд питлорд", "Undying": "андаинг андаин зомби", "Ursa": "урса медведица",
+  "Vengeful Spirit": "венга вендж", "Venomancer": "веномансер веник веном", "Viper": "вайпер",
+  "Visage": "визаж", "Void Spirit": "войдспирит воидспирит", "Warlock": "варлок",
+  "Weaver": "вивер", "Windranger": "вр виндраннер виндра ветрянка", "Winter Wyvern": "виверна вв",
+  "Witch Doctor": "вд витчдоктор доктор", "Wraith King": "вк скелет рейз король", "Zeus": "зевс",
+};
+// подходит ли герой под поисковый запрос: английское имя, английские прозвища OpenDota, русские имена и сленг
+// 0 — точное совпадение с именем/сленгом, 1 — начало слова, 2 — внутри слова, 9 — не подходит
+function heroMatchRank(h, q) {
+  if (!q) return 0;
+  const ru = (RU_ALIASES[h.localized_name] || "").split(" ");
+  const en = Array.isArray(h.aliases) ? h.aliases : String(h.aliases || "").split(",");
+  let best = 9;
+  for (const n of [h.localized_name, ...en, ...ru]) {
+    const s = norm(n);
+    if (!s) continue;
+    if (s === q) return 0;
+    if (s.startsWith(q)) best = Math.min(best, 1);
+    else if (q.length >= 3 && s.includes(q)) best = Math.min(best, 2);
+  }
+  return best;
+}
+const heroMatches = (h, q) => heroMatchRank(h, q) < 9;
+// при поиске сначала точные совпадения («па» → Phantom Assassin), потом остальные
+const byMatch = (list, q) => q ? list.slice().sort((a, b) => heroMatchRank(a, q) - heroMatchRank(b, q)) : list;
 
 function tileHTML(h, extra = "") {
   const hi = pub(h, HIGH).wr;
@@ -596,9 +662,10 @@ function renderHeroes() {
   $("#hero-attrs").innerHTML = chipsHTML([["", "Все"], ...Object.entries(ATTRS)], heroState.attr);
   $("#hero-sort").innerHTML = chipsHTML([["name", "По имени"], ["wr", "По винрейту (Divine+)"], ["pro", "По винрейту (про)"]], heroState.sort);
   const q = norm(heroState.q);
-  let list = HERO_LIST.filter(h => (!heroState.attr || h.primary_attr === heroState.attr) && (!q || norm(h.localized_name).includes(q)));
+  let list = HERO_LIST.filter(h => (!heroState.attr || h.primary_attr === heroState.attr) && heroMatches(h, q));
   if (heroState.sort === "wr") list = list.slice().sort((a, b) => (pub(b, HIGH).wr || 0) - (pub(a, HIGH).wr || 0));
   if (heroState.sort === "pro") list = list.slice().sort((a, b) => (proStat(b).p >= MIN_PRO_PICKS ? proStat(b).wr : 0) - (proStat(a).p >= MIN_PRO_PICKS ? proStat(a).wr : 0));
+  list = byMatch(list, q);
   $("#hero-grid").innerHTML = list.map(h => tileHTML(h)).join("") || `<div class="muted">Ничего не найдено</div>`;
 }
 $("#hero-search").oninput = e => { heroState.q = e.target.value; renderHeroes(); };
@@ -1813,8 +1880,8 @@ function renderPicker() {
   $("#picker-attrs").innerHTML = chipsHTML([["", "Все"], ...Object.entries(ATTRS)], picker.attr);
   const taken = new Set([...picked(draft.a), ...picked(draft.e)]);
   const q = norm(picker.q);
-  $("#picker-grid").innerHTML = HERO_LIST.filter(h => !taken.has(h.id) &&
-    (!picker.attr || h.primary_attr === picker.attr) && (!q || norm(h.localized_name).includes(q)))
+  $("#picker-grid").innerHTML = byMatch(HERO_LIST.filter(h => !taken.has(h.id) &&
+    (!picker.attr || h.primary_attr === picker.attr) && heroMatches(h, q)), q)
     .map(h => tileHTML(h)).join("") || `<div class="muted">Ничего не найдено</div>`;
 }
 $("#picker-search").oninput = e => { picker.q = e.target.value; renderPicker(); };
