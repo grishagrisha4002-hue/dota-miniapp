@@ -100,6 +100,7 @@
   .bal .tp { color: var(--hint); }
   .bal .tc { color: var(--bad); }
   .bal .ti { color: var(--text); opacity: .75; }
+  .bal .tx { color: var(--good); }
   .bal .tidle { color: var(--hint); font-style: italic; }
   .build .legend { margin-top: 10px; font-size: 11px; }
   /* ---- значки на иконках предметов и карточка предмета ---- */
@@ -617,7 +618,7 @@ const ITEM_GUIDE = {
   arcane_boots: { what: "сапоги, восстанавливающие ману тебе и союзникам" },
   tranquil_boots: { what: "сапоги с быстрым передвижением и регенерацией здоровья" },
   boots: { what: "обычные сапоги: скорость передвижения, потом улучшаются" },
-  travel_boots: { what: "сапоги с телепортом к любому союзному крипу или зданию" },
+  travel_boots: { what: "Boots of Travel: телепорт к любому союзному крипу или зданию — в лейте успеваешь везде" },
   guardian_greaves: { what: "лечит и снимает плохие эффекты со всей команды" },
   mekansm: { what: "лечит всю команду рядом" },
   wraith_band: { what: "дешёвые статы для ловкача на линии" },
@@ -670,6 +671,19 @@ const ITEM_GUIDE = {
   disperser: { what: "сжигает ману и ускоряет союзника, снимая замедления" },
   revenants_brooch: { what: "атаки наносят магический урон" },
   wind_lace: { what: "дешёвая скорость передвижения" },
+
+  // --- новые предметы (isNew — из последнего патча; описания по данным игры)
+  bloodslinger: { isNew: true, what: "Улучшенная гранатка: кидаешь в область — урон, яд и замедление. Плюс здоровье, интеллект и мана. Саппорт собирает после линии" },
+  skypiercer: { isNew: true, what: "Улучшение Halberd: обезоруживает вражеского керри на 3 с (рядом с врагом перезаряжается быстрее), +25% уклонения, сила и броня", tags: ["physical"] },
+  berserkers_sabatons: { isNew: true, what: "Sabatons of Mordiggian = Phase Boots + Armlet: включаемый режим — урон, сила, броня, скорость и проход сквозь юнитов, но тратит здоровье (умереть от этого нельзя)" },
+  caduceus: { isNew: true, what: "Caduceus = Force Staff + Phylactery: толкает, и следующее заклинание в цель наносит доп. урон с замедлением врагу или лечит союзника" },
+  starforge: { isNew: true, what: "Starforge = Meteor Hammer + Ultimate Orb: метеор со станом, а после любого твоего контроля враг ещё горит и замедлен. Много характеристик — для мега-лейта" },
+  ristuls_devotion: { isNew: true, what: "Ristul's Devotion — улучшение Vladmir's: аура вампиризма, урона и брони на всю команду" },
+  hydras_breath: { what: "Hydra's Breath: для дальнобойных ловкачей — атаки отравляют (урон от здоровья цели) и иногда бьют сразу по нескольким врагам" },
+  crellas_crozier: { what: "Crella's Crozier: на 4 с иммунитет к физ. урону; аура режет лечение врагов рядом", tags: ["physical", "heal"] },
+  consecrated_wraps: { what: "Consecrated Wraps: сопротивление магии и щит, который включается, когда тебя бьют", tags: ["magic"] },
+  essence_distiller: { what: "Essence Distiller: лечит союзника или как ловушка цепляется к врагу и показывает его (даже невидимого)", tags: ["invis"] },
+  moon_shard: { what: "Moon Shard: огромная скорость атаки (можно съесть, чтобы освободить слот)" },
 
   // --- стартовые и расходные предметы (start: true) — объяснения для новичков
   quelling_blade: { start: true, what: "Топорик: больше урона по крипам — проще добивать их и получать золото. Ещё им можно срубить дерево. Берут герои ближнего боя, которые фармят" },
@@ -826,13 +840,16 @@ function itemBadge(k) {
 }
 // во что собирается предмет: { ключ: [названия больших предметов] }
 let USED_IN = null;
-function usedIn(k) {
+function usedInItems(k) {
   if (!USED_IN) {
     USED_IN = {};
     for (const it of Object.values(ITEMS))
-      if (!it.key.startsWith("recipe_")) for (const c of it.components || []) (USED_IN[c] = USED_IN[c] || []).push(it);
+      if (!it.key.startsWith("recipe_")) for (const c of new Set(it.components || [])) (USED_IN[c] = USED_IN[c] || []).push(it);
   }
-  return (USED_IN[k] || []).sort((a, b) => (a.cost || 0) - (b.cost || 0)).map(it => it.dname).filter((n, i, a) => a.indexOf(n) === i);
+  return (USED_IN[k] || []).slice().sort((a, b) => (a.cost || 0) - (b.cost || 0));
+}
+function usedIn(k) {
+  return usedInItems(k).map(it => it.dname).filter((n, i, a) => a.indexOf(n) === i);
 }
 function openItemCard(k) {
   const it = ITEM_BY_KEY()[k];
@@ -1099,6 +1116,44 @@ function balancedBuild(p, h, pop, pubAll, counters, spam, byKey) {
   return { early: [...early.values()], core };
 }
 
+// Мега-лейт: во что улучшить предметы из твоего билда (особенно новые предметы патча)
+// + что про докупают в лейте + Boots of Travel для коров
+function lateBuild(p, pop, buildKeys, byKey) {
+  const have = new Set(buildKeys);
+  const late = {};
+  for (const { it, n } of proRows(pop.late_game_items)) if (n >= 3) late[it.key] = n;   // 1–2 игры — случайность
+  const rows = new Map();
+  const add = (k, line, prio) => {
+    if (!byKey[k] || have.has(k)) return;
+    const r = rows.get(k) || { key: k, pro: null, why: [], extra: [], prio: 0 };
+    if (line && !r.extra.includes(line)) r.extra.push(line);
+    r.prio = Math.max(r.prio, prio);
+    rows.set(k, r);
+  };
+  const name = k => byKey[k] ? byKey[k].dname : k;
+  // 1. улучшения того, что уже есть
+  for (const k of have) for (const big of usedInItems(k)) {
+    const g = ITEM_GUIDE[big.key];
+    const isNew = !!(g && g.isNew);
+    if (!isNew && !((big.cost || 0) >= 3500 && late[big.key])) continue;
+    const cnt = {};
+    for (const c of big.components || []) cnt[c] = (cnt[c] || 0) + 1;
+    const label = c => name(c) + (cnt[c] > 1 ? ` ×${cnt[c]}` : "");
+    const got = Object.keys(cnt).filter(c => have.has(c)), need = Object.keys(cnt).filter(c => !have.has(c));
+    add(big.key, `⬆️ у тебя уже есть ${got.map(name).join(" + ")}` + (need.length ? `, докупить: ${need.map(label).join(" + ")}` : ""), isNew ? 3 : 2);
+    if (isNew) add(big.key, "🆕 новый предмет патча", 3);
+  }
+  // 2. что про чаще всего докупают в лейте на этом герое
+  Object.entries(late).sort((a, b) => b[1] - a[1]).map(([k]) => byKey[k])
+    .filter(it => it && (it.cost || 0) >= 4000 && !CONSUMABLES.has(it.key) && !it.key.startsWith("recipe_"))
+    .slice(0, 4).forEach(it => add(it.key, null, 1));
+  for (const r of rows.values()) if (late[r.key]) r.pro = `про в лейте: в ${fmt(late[r.key])} играх`;
+  // 3. коры в лейте меняют сапоги на Boots of Travel
+  if (p <= 2 && !have.has("travel_boots") && !have.has("travel_boots_2"))
+    add("travel_boots", "👟 в лейте сапоги обычно меняют на Boots of Travel", 0);
+  return [...rows.values()].sort((a, b) => b.prio - a.prio).slice(0, 6);
+}
+
 function balRowsHTML(rows, byKey, showTime, enemies) {
   return rows.map(r => {
     const it = byKey[r.key];
@@ -1109,6 +1164,7 @@ function balRowsHTML(rows, byKey, showTime, enemies) {
     return `<div class="bal" data-k="${esc(r.key)}"><img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">
       <div class="bt"><b>${esc(it.dname)}</b>${showTime ? ` <span class="tm">${r.tKnown ? "~" : "≈"}${Math.round(r.t)} мин</span>` : ""}
         ${r.pro ? `<div class="tag tp">🏆 ${esc(r.pro)}</div>` : ""}
+        ${(r.extra || []).map(w => `<div class="tag tx">${esc(w)}</div>`).join("")}
         ${r.why.map(w => `<div class="tag tc">🎯 ${esc(w)}</div>`).join("")}
         ${need.map(w => `<div class="tag tc">🎯 ${esc(w)}</div>`).join("")}
         ${note ? `<div class="tag ti">ℹ️ ${esc(note.what)}</div>` : ""}
@@ -1160,6 +1216,8 @@ function draftBuildHTML(h, pop) {
     ${buildItemsHTML(v.items, byKey, subs)}</div>`).join("");
 
   const bal = balancedBuild(p, h, pop, timing, list, spam, byKey);
+  const buildKeys = [...((starts[0] || {}).items || []), ...bal.early.map(r => r.key), ...bal.core.map(r => r.key)];
+  const lateRows = lateBuild(p, pop, buildKeys, byKey);
   const draftNote = !enemies.length
     ? `<div class="why">Добавь врагов в драфте — добавлю в билд предметы против них (🎯).</div>`
     : !list.length ? `<div class="why">Против этих врагов ничего особого не нужно — собирай как про.</div>` : "";
@@ -1172,6 +1230,7 @@ function draftBuildHTML(h, pop) {
       ${startsNote ? `<div class="why">${esc(startsNote)}</div>` : ""}
       <div class="st">⏱ Ранняя игра</div>${balRowsHTML(bal.early, byKey, false, enemies)}
       <div class="st">⚔️ Основа — по порядку покупки</div>${balRowsHTML(bal.core, byKey, true, enemies)}
+      ${lateRows.length ? `<div class="st">👑 Мега-лейт и улучшения — если игра затянулась</div>${balRowsHTML(lateRows, byKey, false, enemies)}` : ""}
       ${draftNote}
       <div class="why legend">Нажми на предмет — подробнее. 🏆 — так собирают про · 🎯 — нужно против этого драфта · ℹ️ — что делает предмет ·
         💡 — ситуативный, в этом драфте можно не брать · ~ — среднее время покупки у про, ≈ — примерная оценка</div>
