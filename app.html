@@ -2085,7 +2085,9 @@ async function renderRecs(isRetry = false) {
     html += `<p class="muted" style="margin-bottom:0">👆 Нажми на героя — покажу билд под этот драфт.<br>Оценка — только по матчам: ⚔️ преимущество против каждого видимого врага в про-матчах (п.п. винрейта) + винрейт героя на твоей позиции` +
       (allies.length ? ` + 🤝 насколько чаще твои союзники побеждают вместе с этим героем` : "") +
       (unknown > 0 ? ` − риск, что его законтрят оставшимися пиками.` : `.`) +
-      (ANALYTICS && ANALYTICS.matches ? `<br>Позиции героев и винрейт на позиции — по ${fmt(ANALYTICS.matches)} матчам: турниры, топ-200 ладдера Европы и пабы про-игроков.` : "") + `</p>`;
+      (ANALYTICS && ANALYTICS.pos_source
+        ? `<br>Позиции, винрейт на позиции и контрпики — по матчам ${esc(ANALYTICS.pos_source)} (STRATZ); предметы против конкретных врагов — по ${fmt(ANALYTICS.matches)} матчам турниров, топ-200 и про.`
+        : ANALYTICS && ANALYTICS.matches ? `<br>Позиции героев и винрейт на позиции — по ${fmt(ANALYTICS.matches)} матчам: турниры, топ-200 ладдера Европы и пабы про-игроков.` : "") + `</p>`;
     box.innerHTML = html;
   } catch (e) {
     if (token === recsToken) box.innerHTML = `<div class="error">Не удалось загрузить данные. Проверь интернет и попробуй ещё раз.</div>`;
