@@ -869,14 +869,16 @@ function parseAccount(s) {
   if (n.length >= 16) { try { n = (BigInt(n) - STEAM64_BASE).toString(); } catch (e) { return null; } }
   return +n > 0 ? +n : null;
 }
+// облачное хранилище Telegram есть с версии 6.9 (в обычном браузере его нет)
+const hasCloud = () => !!(tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9"));
 function setAcc(id) {
   lsSet("myAcc", id);
-  try { if (tg && tg.CloudStorage) tg.CloudStorage.setItem("myAcc", id ? String(id) : ""); } catch (e) {}
+  try { if (hasCloud()) tg.CloudStorage.setItem("myAcc", id ? String(id) : ""); } catch (e) {}
 }
 function cloudAcc() {
   return new Promise(res => {
     try {
-      if (!tg || !tg.CloudStorage) return res(null);
+      if (!hasCloud()) return res(null);
       tg.CloudStorage.getItem("myAcc", (err, v) => res(!err && v ? +v : null));
       setTimeout(() => res(null), 3000);
     } catch (e) { res(null); }
