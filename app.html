@@ -497,9 +497,58 @@ const POSITION_BY_ROLES = [
   // 5 Фулл-сап
   h => has(h, "Support"),
 ];
-const fitsPosition = (h, pos) => LISTED_HEROES.has(h.localized_name)
-  ? POSITION_HEROES[pos].has(h.localized_name)
-  : POSITION_BY_ROLES[pos](h);
+/* ---- аналитика по реальным матчам (сервер: analytics.py → mirror/analytics.json) ----
+   pos[герой] = [[игр, побед] на позиции 1..5]; items[герой][позиция] = { n: игр, i: { предмет: [игр, ср. минута] } }
+   Турнирные матчи + игры топ-200 ладдера Европы + пабы про-игроков. */
+let ANALYTICS = null;
+const loadAnalytics = () => mirror("analytics.json").then(d => (ANALYTICS = d)).catch(() => null);
+const MIN_POS_GAMES = 20;            // сколько игр героя нужно, чтобы решать «на какой позиции он играет» по матчам
+const POS_SHARE = 0.12;              // герой подходит на позицию, если там хотя бы 12% его игр
+function heroPosStats(h) {
+  const d = ANALYTICS && ANALYTICS.pos && ANALYTICS.pos[h.id];
+  if (!d) return null;
+  const total = d.reduce((s, [g]) => s + g, 0);
+  return total >= MIN_POS_GAMES ? { d, total } : null;
+}
+// по матчам, если данных хватает; иначе — запасной ручной список / роли OpenDota
+const fitsPosition = (h, pos) => {
+  const s = heroPosStats(h);
+  if (s) return s.d[pos][0] >= 3 && s.d[pos][0] / s.total >= POS_SHARE;
+  return LISTED_HEROES.has(h.localized_name) ? POSITION_HEROES[pos].has(h.localized_name) : POSITION_BY_ROLES[pos](h);
+};
+// винрейт героя на позиции по матчам (сглаженный) или null
+function posWinrate(h, pos) {
+  const s = heroPosStats(h);
+  if (!s) return null;
+  const [g, w] = s.d[pos];
+  return g >= 8 ? { wr: (w + 10 * 0.5) / (g + 10) * 100, g } : null;
+}
+// доля игр, где на этом герое на этой позиции покупают предмет (по матчам); null — мало данных
+function realItemRate(heroId, p, key) {
+  const a = ANALYTICS && ANALYTICS.items && ANALYTICS.items[heroId];
+  if (!a) return null;
+  const at = a[String(p + 1)];
+  if (at && at.n >= 15) return ((at.i[key] || [0])[0]) / at.n;
+  let n = 0, c = 0;                  // на позиции мало игр — смотрим все игры героя
+  for (const v of Object.values(a)) { n += v.n; c += (v.i[key] || [0])[0]; }
+  return n >= 15 ? c / n : null;
+}
+// сколько раз предмет покупали на герое в про-матчах (OpenDota itemPopularity)
+function popCount(heroId, key) {
+  const pop = (mem[`/heroes/${heroId}/itemPopularity`] || {}).data;
+  const it = ITEM_BY_KEY()[key];
+  if (!pop || !it) return null;
+  return ["start_game_items", "early_game_items", "mid_game_items", "late_game_items"]
+    .reduce((s, st) => s + ((pop[st] || {})[it.id] || 0), 0);
+}
+// Советуем предмет, только если его реально покупают на этом герое: ≥5% игр по нашей базе матчей,
+// а если по герою мало матчей — хотя бы 3 покупки в про-матчах OpenDota.
+function boughtOnHero(h, p, key) {
+  const r = realItemRate(h.id, p, key);
+  if (r != null) return r >= 0.05;
+  const c = popCount(h.id, key);
+  return c == null ? true : c >= 3;
+}
 const ROLE_RU = { null: "Любая", Carry: "Керри", Support: "Саппорт", Initiator: "Инициатор",
   Nuker: "Нюкер", Disabler: "Контроль", Durable: "Танк", Pusher: "Пушер", Escape: "Мобильный",
   Jungler: "Лесник" };
@@ -1090,7 +1139,7 @@ function laneItems(p, h, spam) {
     ["magic_wand", ATTR_BRACER[attr], boots],
     ["magic_wand", "wind_lace", boots],
     ["magic_wand", "wind_lace", boots],
-  ][p];
+  ][p].filter(k => boughtOnHero(h, p, k));     // только то, что на этом герое реально покупают
   return { start, early, spamNote: spam.length ? `Волшебная палочка обязательна: ${spam.join(", ")} часто кастуют` : "" };
 }
 
@@ -1101,6 +1150,7 @@ function draftCounters(p, h) {
   const out = new Map();   // ключ предмета -> { key, reasons: [] }
   const add = (key, reason) => {
     if (!key) return;
+    if (!boughtOnHero(h, p, key)) return;      // на этом герое такое почти не покупают — не советуем
     if (!out.has(key)) out.set(key, { key, reasons: [] });
     out.get(key).reasons.push(reason);
   };
@@ -1530,6 +1580,7 @@ function lateBuild(p, pop, buildKeys, byKey, h) {
   const rows = new Map();
   const add = (k, line, prio) => {
     if (!byKey[k] || have.has(k)) return;
+    if (!late[k] && !boughtOnHero(h, p, k)) return;   // улучшение, которое на этом герое почти не собирают
     const r = rows.get(k) || { key: k, pro: null, why: [], extra: [], prio: 0 };
     if (line && !r.extra.includes(line)) r.extra.push(line);
     r.prio = Math.max(r.prio, prio);
@@ -1928,13 +1979,8 @@ async function renderRecs(isRetry = false) {
     const syns = synTables || allies.map(() => null);
     const countersMissing = enemies.length && tables.every(t => !Object.keys(t).length);
     const synFailed = allies.length && !synLate && syns.every(x => !x);
-    // чего не хватает команде: роли и тип урона
-    const allyHeroes = allies.map(a => HEROES[a]).filter(Boolean);
-    const missingRoles = allyHeroes.length ? NEEDED_ROLES.filter(r => r !== "Carry" || draft.me !== 0)
-      .filter(r => !allyHeroes.some(a => (a.roles || []).includes(r))) : [];
-    const physN = allyHeroes.filter(a => THREAT_SETS.physical.has(a.localized_name)).length;
-    const magN = allyHeroes.filter(a => THREAT_SETS.magic.has(a.localized_name)).length;
-    const needDmg = allyHeroes.length >= 2 ? (magN === 0 ? "magic" : physN === 0 ? "physical" : null) : null;
+    // Оценка — только по матчам: контрпики (матчапы), синергия, сила героя на твоей позиции.
+    // Бонусов «закрывает роль / тип урона» больше нет — это были правила, а не данные.
     const taken = new Set([...allies, ...enemies]);
     const recs = [];
     for (const h of HERO_LIST) {
@@ -1946,8 +1992,11 @@ async function renderRecs(isRetry = false) {
         const enemyWr = (m.wins + DRAFT_PRIOR * 0.5) / (m.games_played + DRAFT_PRIOR);
         return { e, v: (0.5 - enemyWr) * 100 };
       });
+      // сила в мете: винрейт именно на твоей позиции по нашей базе матчей, если игр хватает,
+      // иначе — общий винрейт героя в Divine+
       const hi = pub(h, HIGH);
-      const meta = hi.p >= MIN_PUB_PICKS ? (hi.wr - 50) * META_WEIGHT : 0;
+      const pw = posWinrate(h, draft.me);
+      const meta = pw ? (pw.wr - 50) * META_WEIGHT : hi.p >= MIN_PUB_PICKS ? (hi.wr - 50) * META_WEIGHT : 0;
       // насколько чаще союзник A побеждает, когда X в его команде (относительно его обычного винрейта)
       const syn = allies.map((a, i) => {
         const s = syns[i];
@@ -1955,12 +2004,8 @@ async function renderRecs(isRetry = false) {
         const m = s.t[h.id] || { g: 0, w: 0 };
         return { a, g: m.g, v: ((m.w + SYNERGY_PRIOR * s.base) / (m.g + SYNERGY_PRIOR) - s.base) * 100 * SYNERGY_WEIGHT };
       }).filter(Boolean);
-      // закрывает то, чего нет в команде
-      const fills = missingRoles.filter(r => (h.roles || []).includes(r)).slice(0, 2).map(r => ROLE_RU[r].toLowerCase());
-      if (needDmg && THREAT_SETS[needDmg].has(h.localized_name)) fills.push(needDmg === "magic" ? "магический урон" : "физический урон");
-      const team = fills.length * FILL_BONUS;
-      recs.push({ h, parts, meta, syn, fills, team,
-        score: parts.reduce((s, p) => s + p.v, 0) + syn.reduce((s, p) => s + p.v, 0) + team + meta });
+      recs.push({ h, parts, meta, pw, syn, fills: [], team: 0,
+        score: parts.reduce((s, p) => s + p.v, 0) + syn.reduce((s, p) => s + p.v, 0) + meta });
     }
     recs.sort((a, b) => b.score - a.score);
 
@@ -1995,10 +2040,11 @@ async function renderRecs(isRetry = false) {
     html += top.slice(0, DRAFT_TOP).map(r => {
       const det = r.parts.slice().sort((a, b) => b.v - a.v).slice(0, 3)
         .map(p => `${esc(HEROES[p.e].localized_name)} <span class="${p.v >= 0 ? "good" : "bad"}">${sign(p.v)}</span>`);
-      det.push(`мета <span class="${r.meta >= 0 ? "good" : "bad"}">${sign(r.meta)}</span>`);
+      det.push(r.pw
+        ? `на позиции ${draft.me + 1}: ${r.pw.wr.toFixed(0)}% в ${fmt(r.pw.g)} играх <span class="${r.meta >= 0 ? "good" : "bad"}">${sign(r.meta)}</span>`
+        : `мета <span class="${r.meta >= 0 ? "good" : "bad"}">${sign(r.meta)}</span>`);
       const synLine = r.syn.length ? `<div class="det">🤝 ${r.syn.slice().sort((a, b) => b.v - a.v)
         .map(p => `с ${esc(HEROES[p.a].localized_name)} <span class="${p.v >= 0 ? "good" : "bad"}">${sign(p.v)}</span>`).join(" · ")}</div>` : "";
-      const fillLine = r.fills.length ? `<div class="det">🧩 закрывает: ${r.fills.map(esc).join(", ")} <span class="good">+${r.team.toFixed(1)}</span></div>` : "";
       const allGood = r.parts.length >= 2 && r.parts.every(p => p.v >= 1);
       const teamGood = r.syn.length >= 1 && r.syn.every(p => p.v >= 2);
       const safety = unknown === 0 || r.risk == null ? ""
@@ -2006,7 +2052,7 @@ async function renderRecs(isRetry = false) {
         : r.risk < 4 ? `<div class="risk good">✅ мало контрпиков</div>` : "";
       return `<button class="rec" data-id="${r.h.id}"><img loading="lazy" src="${heroImg(r.h)}" alt="">
         <div class="mid"><div class="nm">${esc(r.h.localized_name)}${allGood ? ` <span class="badge">контрит всех видимых</span>` : ""}${teamGood ? ` <span class="badge">хорош с командой</span>` : ""}</div>
-          ${r.parts.length || r.meta ? `<div class="det">⚔️ ${det.join(" · ")}</div>` : ""}${synLine}${fillLine}${safety}</div>
+          ${r.parts.length || r.meta ? `<div class="det">⚔️ ${det.join(" · ")}</div>` : ""}${synLine}${safety}</div>
         <div class="sc ${r.score >= 0 ? "good" : "bad"}">${sign(r.score)}</div></button>`;
     }).join("") || `<div class="muted">Нет подходящих героев, попробуй другую роль.</div>`;
 
@@ -2017,9 +2063,10 @@ async function renderRecs(isRetry = false) {
     if (countersMissing) html += `<div class="warn">⚠️ Статистика «кто кого контрит» сейчас не загрузилась (сервер OpenDota не отвечает) — советую по мете и составу команды. Попробуй чуть позже.</div>`;
     if (synLate) html += `<div class="warn">⏳ Догружаю, кто с кем хорошо играет, — советы обновятся сами.</div>`;
     if (synFailed) html += `<div class="warn">Не удалось загрузить, кто с кем хорошо играет (сервер OpenDota перегружен) — советую без учёта синергии с командой.</div>`;
-    html += `<p class="muted" style="margin-bottom:0">👆 Нажми на героя — покажу билд под этот драфт.<br>Оценка: ⚔️ преимущество против каждого видимого врага в про-матчах (п.п. винрейта) + сила в мете` +
-      (allies.length ? ` + 🤝 насколько чаще твои союзники побеждают вместе с этим героем + 🧩 то, чего не хватает команде` : "") +
-      (unknown > 0 ? ` − риск, что его законтрят оставшимися пиками.` : `.`) + `</p>`;
+    html += `<p class="muted" style="margin-bottom:0">👆 Нажми на героя — покажу билд под этот драфт.<br>Оценка — только по матчам: ⚔️ преимущество против каждого видимого врага в про-матчах (п.п. винрейта) + винрейт героя на твоей позиции` +
+      (allies.length ? ` + 🤝 насколько чаще твои союзники побеждают вместе с этим героем` : "") +
+      (unknown > 0 ? ` − риск, что его законтрят оставшимися пиками.` : `.`) +
+      (ANALYTICS && ANALYTICS.matches ? `<br>Позиции героев и винрейт на позиции — по ${fmt(ANALYTICS.matches)} матчам: турниры, топ-200 ладдера Европы и пабы про-игроков.` : "") + `</p>`;
     box.innerHTML = html;
   } catch (e) {
     if (token === recsToken) box.innerHTML = `<div class="error">Не удалось загрузить данные. Проверь интернет и попробуй ещё раз.</div>`;
@@ -2097,7 +2144,8 @@ $("#picker-grid").onclick = e => {
 /* ================================================================ старт */
 (async function init() {
   try {
-    await loadHeroes();
+    // аналитика по матчам (позиции, реальные закупы) — не дольше 4 с; нет — работаем на запасных правилах
+    await Promise.all([loadHeroes(), Promise.race([loadAnalytics(), delay(4000)])]);
     draft = normDraft(draft); saveDraft();
     renderDraft(); renderHeroes(); renderTop();
   } catch (e) {
