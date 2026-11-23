@@ -346,6 +346,26 @@
     border: 2px solid rgba(233,185,73,.18); border-top-color: var(--gold); animation: spin .8s linear infinite; }
   .error { padding: 20px; text-align: center; color: var(--bad); }
 
+  /* ---- профиль ---- */
+  .prof-head { display: flex; align-items: center; gap: 14px; padding: 14px; }
+  .prof-head img { width: 64px; height: 64px; border-radius: 14px; border: 1px solid rgba(233,185,73,.4); }
+  .prof-head .nm { font: 800 19px/1.2 var(--display); }
+  .prof-head .rk { margin-top: 4px; font-size: 13px; color: var(--gold-2); }
+  .prof-head .wl { margin-top: 3px; font-size: 12px; color: var(--hint); }
+  .prof-input { width: 100%; box-sizing: border-box; margin-top: 10px; padding: 12px 14px; border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--line); color: var(--text); font-size: 15px; }
+  .prof-btn { display: block; width: 100%; margin-top: 10px; padding: 12px; border-radius: 12px;
+    font: 800 14px/1 var(--display); color: #111; background: linear-gradient(135deg, var(--gold-2), var(--gold)); }
+  .prof-link { display: block; width: 100%; margin-top: 10px; padding: 10px; color: var(--hint); font-size: 13px; background: none; }
+  .my-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); width: 100%; text-align: left; }
+  .my-row:first-child { border-top: none; }
+  .my-row img { width: 56px; height: 32px; border-radius: 6px; object-fit: cover; }
+  .my-row .n { flex: 1; font-weight: 700; font-size: 14px; }
+  .my-row .g { font-size: 12px; color: var(--hint); }
+  .mine-box { margin-bottom: 12px; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(233,185,73,.3);
+    background: radial-gradient(240px 100px at 0% 0%, rgba(233,185,73,.12), transparent 70%), var(--surface); }
+  .mine-box .t { font: 800 13px/1.3 var(--display); color: var(--gold-2); margin-bottom: 4px; }
+
   /* ---- плашка канала ---- */
   .chan-card { position: relative; display: flex; align-items: center; gap: 12px; margin: 14px 0 4px; padding: 14px 40px 14px 14px;
     border-radius: 16px; border: 1px solid rgba(233,185,73,.35);
@@ -399,6 +419,12 @@
   <div class="chan-slot"></div>
 </section>
 
+<section class="view" id="view-profile">
+  <div class="eyebrow">Dota 2 · Player Profile</div>
+  <h1>Мой профиль</h1>
+  <div id="profile-body"><div class="loading">Загружаю…</div></div>
+</section>
+
 <section class="view" id="view-hero"></section>
 
 <div id="item-card"><div class="sheet">
@@ -420,6 +446,7 @@
   <button data-tab="draft" class="active"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="m13 19 6-6"/><path d="m16 16 4 4"/><path d="m19 21 2-2"/><path d="M9.5 6.5 21 18v3h-3L6.5 9.5" opacity=".55"/></svg></span>Драфт</button>
   <button data-tab="heroes"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/><path d="M9 11.5 12 14l3-2.5"/></svg></span>Герои</button>
   <button data-tab="top"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg></span>Топ</button>
+  <button data-tab="profile"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg></span>Профиль</button>
 </nav>
 
 <script>
@@ -811,6 +838,7 @@ function switchTab(tab) {
   currentTab = tab; stack.length = 0;
   document.querySelectorAll("nav.tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
   showView(tab);
+  if (tab === "profile") renderProfile();
 }
 function updateBack() {
   if (!tg) return;
@@ -825,6 +853,108 @@ function goBack() {
 }
 if (tg) tg.BackButton.onClick(goBack);
 document.querySelectorAll("nav.tabs button").forEach(b => b.onclick = () => { haptic(); switchTab(b.dataset.tab); });
+
+/* ================================================================ мой профиль
+   Dota ID (Friend ID / account_id) хранится в браузере и в облаке Telegram (CloudStorage) —
+   переживает смену телефона. Данные — OpenDota: профиль, победы/поражения и герои за полгода. */
+const STEAM64_BASE = 76561197960265728n;
+const MY_DAYS = 180;
+let MY = null;                       // { id, profile, wl, heroes: { heroId: { g, w } } }
+const RANKS = ["", "Рекрут", "Страж", "Рыцарь", "Герой", "Легенда", "Властелин", "Божество", "Титан"];
+function parseAccount(s) {
+  s = (s || "").trim();
+  const m = s.match(/players?\/(\d+)/i) || s.match(/profiles\/(\d{17})/) || s.match(/^(\d{1,17})$/);
+  if (!m) return null;
+  let n = m[1];
+  if (n.length >= 16) { try { n = (BigInt(n) - STEAM64_BASE).toString(); } catch (e) { return null; } }
+  return +n > 0 ? +n : null;
+}
+function setAcc(id) {
+  lsSet("myAcc", id);
+  try { if (tg && tg.CloudStorage) tg.CloudStorage.setItem("myAcc", id ? String(id) : ""); } catch (e) {}
+}
+function cloudAcc() {
+  return new Promise(res => {
+    try {
+      if (!tg || !tg.CloudStorage) return res(null);
+      tg.CloudStorage.getItem("myAcc", (err, v) => res(!err && v ? +v : null));
+      setTimeout(() => res(null), 3000);
+    } catch (e) { res(null); }
+  });
+}
+async function loadMy(force = false) {
+  let id = lsGet("myAcc");
+  if (!id) { id = await cloudAcc(); if (id) lsSet("myAcc", id); }
+  if (!id) { MY = null; return null; }
+  const ttl = force ? 0 : 3 * 3600e3;
+  const [profile, wl, heroes] = await Promise.all([
+    api(`/players/${id}`, ttl),
+    api(`/players/${id}/wl?date=${MY_DAYS}`, ttl).catch(() => null),
+    api(`/players/${id}/heroes?date=${MY_DAYS}`, ttl).catch(() => [])]);
+  const hs = {};
+  for (const r of heroes || []) if (r.games > 0) hs[r.hero_id] = { g: r.games, w: r.win };
+  MY = { id, profile, wl, heroes: hs };
+  return MY;
+}
+const myHero = id => (MY && MY.heroes[id]) || null;
+const gamesRu = n => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "игра" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "игры" : "игр"}`;
+const rankText = p => {
+  if (p.leaderboard_rank) return `Титан · место ${p.leaderboard_rank} в рейтинге`;
+  const t = p.rank_tier;
+  if (!t) return "ранг скрыт или не откалиброван";
+  return `${RANKS[Math.floor(t / 10)] || ""}${t % 10 && t < 80 ? " " + (t % 10) : ""}`;
+};
+async function renderProfile(force = false) {
+  const box = $("#profile-body");
+  const id = lsGet("myAcc") || await cloudAcc();
+  if (!id) {
+    box.innerHTML = `<div class="card" style="padding:14px">
+      <b>Подключи свой аккаунт Dota 2</b>
+      <p class="muted" style="margin:6px 0 0">Приложение покажет твоих героев и будет советовать в драфте лучшее <b>из тех, на ком ты играешь</b>.</p>
+      <input class="prof-input" id="acc-input" placeholder="Friend ID или ссылка на профиль" inputmode="text" autocomplete="off">
+      <button class="prof-btn" id="acc-save">Подключить</button>
+      <p class="muted" style="margin:10px 0 0;font-size:12px">Где взять: в Доте — Профиль → Friend ID (число под ником).
+      Или ссылка на профиль Dotabuff, OpenDota, STRATZ или Steam (вида steamcommunity.com/profiles/7656…).
+      В настройках Доты должно быть включено «Открыть доступ к данным матчей».</p>
+      <div id="acc-err" class="error" style="display:none;padding:10px 0 0"></div></div>`;
+    $("#acc-save").onclick = async () => {
+      const acc = parseAccount($("#acc-input").value);
+      const err = $("#acc-err");
+      if (!acc) { err.style.display = "block"; err.textContent = "Не понял ID. Вставь число Friend ID или ссылку на профиль."; return; }
+      haptic(); setAcc(acc); renderProfile(true);
+    };
+    return;
+  }
+  box.innerHTML = `<div class="loading">Загружаю твой профиль…</div>`;
+  try {
+    const my = await loadMy(force);
+    const p = (my.profile || {}).profile;
+    if (!p) throw new Error("not found");
+    const games = my.wl ? my.wl.win + my.wl.lose : 0;
+    const list = Object.entries(my.heroes).filter(([hid]) => HEROES[hid]).sort((a, b) => b[1].g - a[1].g).slice(0, 12);
+    box.innerHTML = `<div class="card prof-head"><img src="${esc(p.avatarfull || p.avatar || "")}" alt="">
+        <div><div class="nm">${esc(p.personaname || "Игрок")}</div><div class="rk">🏅 ${esc(rankText(my.profile))}</div>
+        <div class="wl">${games ? `за полгода: ${fmt(games)} игр, ${Math.round(my.wl.win / games * 100)}% побед` : "нет открытых матчей за полгода"}</div></div></div>
+      <h2>Мои герои</h2>
+      <div class="card">${list.length ? list.map(([hid, s]) => `<button class="my-row" data-id="${hid}">
+          <img loading="lazy" src="${heroImg(HEROES[hid])}" alt=""><span class="n">${esc(HEROES[hid].localized_name)}</span>
+          <span class="g">${gamesRu(s.g)} · <span class="${s.w / s.g >= 0.5 ? "good" : "bad"}">${Math.round(s.w / s.g * 100)}%</span></span></button>`).join("")
+        : `<div class="muted">Матчей не видно. Включи в Доте: Настройки → Социальное → «Открыть доступ к данным матчей», и сыграй игру.</div>`}</div>
+      <p class="muted">В драфте появится блок «👤 Из твоих героев», а на странице героя — твоя статистика на нём. Данные: OpenDota, обновляются раз в 3 часа.</p>
+      <button class="prof-link" id="acc-refresh">🔄 Обновить сейчас</button>
+      <button class="prof-link" id="acc-change">Сменить аккаунт</button>`;
+    $("#acc-refresh").onclick = () => { haptic(); renderProfile(true); };
+    $("#acc-change").onclick = () => { setAcc(null); MY = null; renderProfile(); renderRecs(); };
+    box.querySelectorAll(".my-row").forEach(b => b.onclick = () => { haptic(); openHero(+b.dataset.id); });
+    renderRecs();
+  } catch (e) {
+    box.innerHTML = `<div class="card" style="padding:14px"><div class="error" style="padding:0">Не удалось загрузить профиль ${id}.</div>
+      <p class="muted">Проверь ID или попробуй позже — OpenDota иногда не отвечает.</p>
+      <button class="prof-btn" id="acc-retry">Попробовать ещё раз</button><button class="prof-link" id="acc-change">Сменить аккаунт</button></div>`;
+    $("#acc-retry").onclick = () => renderProfile(true);
+    $("#acc-change").onclick = () => { setAcc(null); MY = null; renderProfile(); };
+  }
+}
 
 /* ================================================================ герои */
 const heroState = { q: "", attr: "", sort: "name" };
@@ -1845,7 +1975,7 @@ async function openHero(id, push = true) {
   const pro = proStat(h), all = pub(h), hi = pub(h, HIGH);
   const roles = (h.roles || []).map(r => ROLE_RU[r] || r).join(" · ");
   const stat = (val, label, games) => `<div class="card stat"><div class="v ${wrClass(val)}">${val == null ? "—" : val.toFixed(1) + "%"}</div>
-    <div class="l">${label}${games ? " · " + fmt(games) + " игр" : ""}</div></div>`;
+    <div class="l">${label}${games ? " · " + fmt(games) + gamesRu(games).replace(/^\d+/, "") : ""}</div></div>`;
   v.innerHTML = `
     <div class="hero-head"><img src="${heroImg(h)}" alt="">
       <div class="over"><div class="t">${esc(h.localized_name)}</div><div class="s">${ATTRS[h.primary_attr] || ""} · ${esc(roles)}</div></div></div>
@@ -1858,6 +1988,7 @@ async function openHero(id, push = true) {
       ${stat(hi.wr, "Divine + Immortal", hi.p)}
       ${stat(all.wr, "Паблик, все ранги", all.p)}
       <div class="card stat"><div class="v">${fmt(h.pro_ban || 0)}</div><div class="l">Банов в про</div></div>
+      ${myHero(id) ? stat(myHero(id).w / myHero(id).g * 100, "👤 Ты, за полгода", myHero(id).g) : ""}
     </div>
     <div id="hero-build"><div class="loading">Загружаю закупы…</div></div>`;
   showView("hero");
@@ -2056,6 +2187,19 @@ async function renderRecs(isRetry = false) {
       : k <= 4 ? `🕒 <b>Видно ${k} врага</b> — контрпики против них. У врага осталось ${unknown} ${unknown === 1 ? "пик" : "пика"}, риск получить контрпик меньше.`
       : `🎯 <b>Все враги известны</b> — бери жёсткий контрпик, ответить тебе уже нечем.`;
     let html = `<div class="phase">${phase}</div>`;
+    // 👤 лучшие для этого драфта из тех, на ком ты реально играешь (≥5 игр за полгода)
+    if (MY) {
+      const mine = recs.filter(r => (myHero(r.h.id) || {}).g >= 5).sort((a, b) => b.score - a.score).slice(0, 3);
+      html += mine.length
+        ? `<div class="mine-box"><div class="t">👤 Из твоих героев</div>${mine.map(r => {
+            const s = myHero(r.h.id);
+            return `<button class="my-row" data-id="${r.h.id}"><img loading="lazy" src="${heroImg(r.h)}" alt="">
+              <span class="n">${esc(r.h.localized_name)}</span>
+              <span class="g">ты: ${gamesRu(s.g)} · <span class="${s.w / s.g >= 0.5 ? "good" : "bad"}">${Math.round(s.w / s.g * 100)}%</span>
+              · оценка <span class="${r.score >= 0 ? "good" : "bad"}">${sign(r.score)}</span></span></button>`;
+          }).join("")}</div>`
+        : `<div class="mine-box"><div class="t">👤 Из твоих героев</div><div class="muted" style="font-size:12px">На эту позицию у тебя нет героев с 5+ играми за полгода — смотри общие советы ниже.</div></div>`;
+    }
     html += top.slice(0, DRAFT_TOP).map(r => {
       const det = r.parts.slice().sort((a, b) => b.v - a.v).slice(0, 3)
         .map(p => `${esc(HEROES[p.e].localized_name)} <span class="${p.v >= 0 ? "good" : "bad"}">${sign(p.v)}</span>`);
@@ -2064,6 +2208,8 @@ async function renderRecs(isRetry = false) {
         : `мета <span class="${r.meta >= 0 ? "good" : "bad"}">${sign(r.meta)}</span>`);
       const synLine = r.syn.length ? `<div class="det">🤝 ${r.syn.slice().sort((a, b) => b.v - a.v)
         .map(p => `с ${esc(HEROES[p.a].localized_name)} <span class="${p.v >= 0 ? "good" : "bad"}">${sign(p.v)}</span>`).join(" · ")}</div>` : "";
+      const me = myHero(r.h.id);
+      const myLine = me && me.g >= 3 ? `<div class="det">👤 ты на нём: ${gamesRu(me.g)}, <span class="${me.w / me.g >= 0.5 ? "good" : "bad"}">${Math.round(me.w / me.g * 100)}% побед</span></div>` : "";
       const allGood = r.parts.length >= 2 && r.parts.every(p => p.v >= 1);
       const teamGood = r.syn.length >= 1 && r.syn.every(p => p.v >= 2);
       const safety = unknown === 0 || r.risk == null ? ""
@@ -2071,7 +2217,7 @@ async function renderRecs(isRetry = false) {
         : r.risk < 4 ? `<div class="risk good">✅ мало контрпиков</div>` : "";
       return `<button class="rec" data-id="${r.h.id}"><img loading="lazy" src="${heroImg(r.h)}" alt="">
         <div class="mid"><div class="nm">${esc(r.h.localized_name)}${allGood ? ` <span class="badge">контрит всех видимых</span>` : ""}${teamGood ? ` <span class="badge">хорош с командой</span>` : ""}</div>
-          ${r.parts.length || r.meta ? `<div class="det">⚔️ ${det.join(" · ")}</div>` : ""}${synLine}${safety}</div>
+          ${r.parts.length || r.meta ? `<div class="det">⚔️ ${det.join(" · ")}</div>` : ""}${synLine}${myLine}${safety}</div>
         <div class="sc ${r.score >= 0 ? "good" : "bad"}">${sign(r.score)}</div></button>`;
     }).join("") || `<div class="muted">Нет подходящих героев, попробуй другую роль.</div>`;
 
@@ -2114,7 +2260,7 @@ $("#ally-slots").onclick = $("#enemy-slots").onclick = e => {
   draft[side][idx] = null;
   saveDraft(); renderDraft();
 };
-$("#recs").onclick = e => { const r = e.target.closest(".rec"); if (r) { haptic(); openHero(+r.dataset.id); } };
+$("#recs").onclick = e => { const r = e.target.closest(".rec, .my-row"); if (r) { haptic(); openHero(+r.dataset.id); } };
 $("#draft-reset").onclick = () => { haptic("medium"); draft = { ...emptyDraft(), me: draft.me }; saveDraft(); renderDraft(); };
 
 /* ================================================================ выбор героя */
@@ -2169,6 +2315,8 @@ $("#picker-grid").onclick = e => {
     await Promise.all([loadHeroes(), Promise.race([loadAnalytics(), delay(4000)])]);
     draft = normDraft(draft); saveDraft();
     renderDraft(); renderHeroes(); renderTop();
+    // мой профиль — в фоне; как загрузится, советы пересчитаются с блоком «Из твоих героев»
+    loadMy().then(m => { if (m) renderRecs(); }).catch(() => {});
   } catch (e) {
     const msg = `<div class="error">Не удалось загрузить данные с OpenDota.<br>Проверь интернет и открой приложение заново.</div>`;
     $("#recs").innerHTML = msg; $("#hero-grid").innerHTML = msg; $("#top-list").innerHTML = msg;
