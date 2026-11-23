@@ -503,7 +503,8 @@ const POSITION_BY_ROLES = [
 let ANALYTICS = null;
 const loadAnalytics = () => mirror("analytics.json").then(d => (ANALYTICS = d)).catch(() => null);
 const MIN_POS_GAMES = 20;            // сколько игр героя нужно, чтобы решать «на какой позиции он играет» по матчам
-const POS_SHARE = 0.12;              // герой подходит на позицию, если там хотя бы 12% его игр
+const POS_SHARE = 0.18;              // герой подходит на позицию, если там хотя бы 18% его игр…
+const POS_MIN_GAMES = 6;             // …и не меньше 6 игр (редкие случаи вроде Doom на лёгкой линии отсекаем)
 function heroPosStats(h) {
   const d = ANALYTICS && ANALYTICS.pos && ANALYTICS.pos[h.id];
   if (!d) return null;
@@ -513,7 +514,7 @@ function heroPosStats(h) {
 // по матчам, если данных хватает; иначе — запасной ручной список / роли OpenDota
 const fitsPosition = (h, pos) => {
   const s = heroPosStats(h);
-  if (s) return s.d[pos][0] >= 3 && s.d[pos][0] / s.total >= POS_SHARE;
+  if (s) return s.d[pos][0] >= POS_MIN_GAMES && s.d[pos][0] / s.total >= POS_SHARE;
   return LISTED_HEROES.has(h.localized_name) ? POSITION_HEROES[pos].has(h.localized_name) : POSITION_BY_ROLES[pos](h);
 };
 // винрейт героя на позиции по матчам (сглаженный) или null
