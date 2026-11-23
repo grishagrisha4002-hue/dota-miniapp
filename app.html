@@ -1149,16 +1149,34 @@ function draftCounters(p, h) {
   const enemies = picked(draft.e).map(id => HEROES[id]).filter(Boolean);
   const allies = picked(draft.a).map(id => HEROES[id]).filter(Boolean);
   const out = new Map();   // ключ предмета -> { key, reasons: [] }
-  const add = (key, reason) => {
+  const add = (key, reason, fromData = false) => {
     if (!key) return;
-    if (!boughtOnHero(h, p, key)) return;      // на этом герое такое почти не покупают — не советуем
+    // правило без подтверждения матчами: если на этом герое такое почти не покупают — не советуем
+    if (!fromData && !boughtOnHero(h, p, key)) return;
     if (!out.has(key)) out.set(key, { key, reasons: [] });
     out.get(key).reasons.push(reason);
   };
-  const hits = COUNTERS.map(c => ({ c, who: enemies.filter(e => THREAT_SETS[c.tag].has(e.localized_name)) }))
-    .filter(x => x.who.length >= x.c.min)
-    .sort((a, b) => b.who.length - a.who.length);
-  for (const { c, who } of hits) add(c.item(p, h), `${c.why}: ${who.map(e => e.localized_name).join(", ")}`);
+  // 1) По матчам: что на этом герое покупают заметно чаще, когда во вражеской команде стоит этот герой
+  //    (сервер: analytics.py → vs[герой][враг] = [[предмет, доля против него, обычная доля, игр], …])
+  const vs = (ANALYTICS && ANALYTICS.vs && ANALYTICS.vs[h.id]) || {};
+  const byItem = new Map();
+  for (const e of enemies) for (const [k, rate, base, n] of vs[e.id] || []) {
+    const r = byItem.get(k) || { lift: 0, why: [] };
+    r.lift += rate - base;
+    r.why.push(`против ${e.localized_name} берут в ${Math.round(rate * 100)}% игр (обычно ${Math.round(base * 100)}%, ${n} игр)`);
+    byItem.set(k, r);
+  }
+  [...byItem.entries()].sort((a, b) => b[1].lift - a[1].lift)
+    .forEach(([k, r]) => add(k, "📊 " + r.why.join("; "), true));
+  // 2) Запасной вариант, пока по этим парам героев мало матчей: правила «угроза → предмет»
+  //    (и то только предметы, которые на этом герое реально покупают)
+  const covered = enemies.filter(e => (vs[e.id] || []).length).length;
+  if (covered < enemies.length) {
+    const hits = COUNTERS.map(c => ({ c, who: enemies.filter(e => !(vs[e.id] || []).length && THREAT_SETS[c.tag].has(e.localized_name)) }))
+      .filter(x => x.who.length >= x.c.min)
+      .sort((a, b) => b.who.length - a.who.length);
+    for (const { c, who } of hits) add(c.item(p, h), `${c.why}: ${who.map(e => e.localized_name).join(", ")}`);
+  }
   // союзники: если в команде некому начинать драки — инициатором будешь ты
   if ((p === 2 || p === 3) && allies.length >= 2 && !allies.some(a => has(a, "Initiator")))
     add("blink", "в твоей команде нет инициатора — начинать драки придётся тебе");
