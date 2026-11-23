@@ -1167,7 +1167,7 @@ function draftCounters(p, h) {
     byItem.set(k, r);
   }
   [...byItem.entries()].sort((a, b) => b[1].lift - a[1].lift)
-    .forEach(([k, r]) => add(k, "📊 " + r.why.join("; "), true));
+    .forEach(([k, r]) => add(k, r.why.join("; "), true));
   // 2) Запасной вариант, пока по этим парам героев мало матчей: правила «угроза → предмет»
   //    (и то только предметы, которые на этом герое реально покупают)
   const covered = enemies.filter(e => (vs[e.id] || []).length).length;
