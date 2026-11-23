@@ -377,6 +377,21 @@
     background: none; padding: 0; }
   .prof-on img { width: 22px; height: 22px; border-radius: 6px; }
   .prof-on b { color: var(--gold-2); font-weight: 700; }
+  .hp-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 8px; }
+  .hp-skills .sk { display: flex; flex-direction: column; align-items: center; width: 74px; text-align: center; font-size: 11px; }
+  .hp-skills .sk img { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); }
+  .hp-skills .sk b { margin-top: 3px; font-weight: 700; line-height: 1.2; }
+  .hp-skills .sk i { font-style: normal; color: var(--hint); }
+  .hp-skills .arr { color: var(--gold); font-weight: 800; }
+  .hp-tal .tr { display: flex; align-items: stretch; gap: 6px; margin-bottom: 6px; }
+  .hp-tal .lv { flex: none; width: 30px; display: grid; place-items: center; border-radius: 8px; font: 800 13px/1 var(--display);
+    color: var(--gold-2); background: var(--gold-dim); }
+  .hp-tal .opt { flex: 1; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); font-size: 12px; line-height: 1.3; }
+  .hp-tal .opt.top { border-color: rgba(233,185,73,.5); background: rgba(233,185,73,.08); }
+  .hp-tal .opt em { display: block; font-style: normal; color: var(--hint); font-size: 11px; margin-top: 2px; }
+  .hp-lane { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .hp-lane .lt { font: 800 12px/1.2 var(--display); margin: 2px 0 4px; }
+  .hp-lane .lt.good { color: var(--good); } .hp-lane .lt.bad { color: var(--bad); }
   .mine-box { margin-bottom: 12px; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(233,185,73,.3);
     background: radial-gradient(240px 100px at 0% 0%, rgba(233,185,73,.12), transparent 70%), var(--surface); }
   .mine-box .t { font: 800 13px/1.3 var(--display); color: var(--gold-2); margin-bottom: 4px; }
@@ -976,9 +991,16 @@ async function renderProfile(force = false) {
           <span class="g">${gamesRu(s.g)} · <span class="${s.w / s.g >= 0.5 ? "good" : "bad"}">${Math.round(s.w / s.g * 100)}%</span></span></button>`).join("")
         : `<div class="muted">Матчей не видно. Включи в Доте: Настройки → Социальное → «Открыть доступ к данным матчей», и сыграй игру.</div>`}</div>
       <p class="muted">В драфте появится блок «👤 Из твоих героев», а на странице героя — твоя статистика на нём. Данные: OpenDota, обновляются раз в 3 часа.</p>
+      <button class="prof-btn" id="acc-digest">📬 Присылать мой разбор раз в неделю</button>
+      <p class="muted" style="margin:6px 0 0;font-size:12px">По понедельникам бот пришлёт: твою неделю, как твои герои выглядят в мете и кого попробовать на твоей позиции. Откроется чат с ботом — нажми «Запустить».</p>
       <button class="prof-link" id="acc-refresh">🔄 Обновить сейчас</button>
       <button class="prof-link" id="acc-change">Сменить аккаунт</button>`;
     $("#acc-refresh").onclick = () => { haptic(); renderProfile(true); };
+    $("#acc-digest").onclick = () => {
+      haptic();
+      const url = `https://t.me/dota2probuiderbot?start=acc_${my.id}`;
+      tg && tg.openTelegramLink ? tg.openTelegramLink(url) : window.open(url, "_blank");
+    };
     $("#acc-change").onclick = () => { setAcc(null); MY = null; renderProfile(); renderRecs(); renderProfileCta(); };
     box.querySelectorAll(".my-row").forEach(b => b.onclick = () => { haptic(); openHero(+b.dataset.id); });
     renderRecs();
@@ -1975,6 +1997,48 @@ function itemsHTML(list) {
   return `<div class="items">${list.map(([it, n]) => `<div class="item" data-k="${esc(it.key)}" title="${esc(it.dname || it.key)}">
     <img loading="lazy" src="${it.img ? CDN + it.img : ""}" alt="">${esc(it.dname || it.key)}<br><b>${n}</b></div>`).join("")}</div>`;
 }
+/* ---- «Как играют на позиции» — STRATZ, Divine + Immortal (сервер: stratz_hero.py → mirror/heropos.json) ---- */
+const POS_NAMES = ["Керри", "Мид", "Оффлейн", "Семи-сап", "Фулл-сап"];
+function heroPosHTML(h, data, p, byKey) {
+  const posList = Object.keys(data).map(Number).sort((a, b) => (data[b].n || 0) - (data[a].n || 0));
+  const d = data[p];
+  const chips = `<div class="chips" id="hp-pos">${posList.map(x => `<button class="chip${x === p ? " active" : ""}" data-p="${x}">${x} · ${POS_NAMES[x - 1]}</button>`).join("")}</div>`;
+  if (!d) return chips;
+  const pct = v => Math.round(v * 100) + "%";
+  let html = chips;
+  if (d.start && d.start.length) {
+    const keys = d.start.flatMap(([k, q]) => Array(q).fill(k)).filter(k => byKey[k]);
+    const subs = Object.fromEntries(d.start.map(([k, , r]) => [k, `у ${pct(r)}`]));
+    html += `<div class="sub-st">🛒 Старт</div>${buildItemsHTML(keys, byKey, subs)}`;
+  }
+  if (d.boots && d.boots.length) {
+    html += `<div class="sub-st">👟 Сапоги</div>${buildItemsHTML(d.boots.map(b => b[0]).filter(k => byKey[k]), byKey,
+      Object.fromEntries(d.boots.map(([k, r, m, w]) => [k, `${pct(r)} · ~${Math.round(m)} мин · ${w}% побед`])))}`;
+  }
+  if (d.max && d.max.length) {
+    html += `<div class="sub-st">📈 Что максят первым</div><div class="hp-skills">${d.max.map(([, nm, img, lvl], i) =>
+      `${i ? `<span class="arr">→</span>` : ""}<span class="sk"><img loading="lazy" src="${img ? CDN + img : ""}" alt=""><b>${esc(nm)}</b><i>к ${Math.round(lvl)} ур.</i></span>`).join("")}</div>`;
+  }
+  if (d.talents && d.talents.length) {
+    html += `<div class="sub-st">⭐ Таланты</div><div class="hp-tal">${d.talents.slice().reverse().map(([lvl, opts]) =>
+      `<div class="tr"><span class="lv">${lvl}</span>${opts.slice(0, 2).map(([nm, r, w], i) =>
+        `<span class="opt${i === 0 ? " top" : ""}">${esc(nm)}<em>${pct(r)} · ${w}% побед</em></span>`).join("")}</div>`).join("")}</div>`;
+  }
+  const neut = Object.entries(d.neutral || {}).sort((a, b) => a[0] - b[0]);
+  if (neut.length) {
+    html += `<div class="sub-st">🎁 Нейтралки</div>${buildItemsHTML(neut.map(([, rows]) => rows[0][0]).filter(k => byKey[k]), byKey,
+      Object.fromEntries(neut.map(([t, rows]) => [rows[0][0], `тир ${t} · ${pct(rows[0][1])}`])))}`;
+  }
+  const lane = d.lane || {};
+  const laneRows = rows => (rows || []).filter(([id]) => HEROES[id]).map(([id, wr, n]) => ({ h: HEROES[id], wr, g: n }));
+  if ((lane.good || []).length || (lane.bad || []).length) {
+    html += `<div class="sub-st">🛣 Линия: % выигранных линий</div>
+      <div class="hp-lane"><div><div class="lt good">Легко против</div>${muHTML(laneRows(lane.good))}</div>
+      <div><div class="lt bad">Тяжело против</div>${muHTML(laneRows(lane.bad))}</div></div>`;
+  }
+  return html + `<p class="muted" style="margin-bottom:0">По ${fmt(d.n)} матчам ${POS_NAMES[p - 1].toLowerCase()}а за неделю в Divine и Immortal (STRATZ).</p>`;
+}
+
 function muHTML(rows) {
   return `<div class="mu">${rows.map(r => `<button class="mu-row" data-id="${r.h.id}">
     <img loading="lazy" src="${heroImg(r.h)}" alt=""><span class="nm">${esc(r.h.localized_name)}</span>
@@ -2018,6 +2082,7 @@ async function openHero(id, push = true) {
     <button class="guide-btn" data-url="https://dota2protracker.com/hero/${encodeURIComponent(D2PT_NAMES[h.localized_name] || h.localized_name)}">
       🔗 Открыть в Dota Pro Tracker <span>· гайд и билды игроков 7000+ MMR</span></button>
     <div id="hero-draft-build"><div class="loading">Собираю билд под драфт…</div></div>
+    <div id="hero-pos-wrap"></div>
     <h2>Статистика</h2>
     <div class="stats">
       ${stat(pro.wr, "Про-сцена", pro.p)}
@@ -2048,6 +2113,20 @@ async function openHero(id, push = true) {
       .map(m => ({ h: HEROES[m.hero_id], wr: m.wins / m.games_played * 100, g: m.games_played }))
       .sort((a, b) => a.wr - b.wr);
     $("#hero-draft-build").innerHTML = popNote + draftBuildHTML(h, pop);
+    // «Как играют на позиции» — STRATZ; позиция по умолчанию: твоя, если герой на ней играет, иначе основная
+    mirror("heropos.json").then(hp => {
+      const data = ((hp || {}).heroes || {})[id];
+      if (!data || currentHeroId !== id) return;
+      const byKey = ITEM_BY_KEY();
+      const avail = Object.keys(data).map(Number);
+      let p = avail.includes(draft.me + 1) ? draft.me + 1 : avail.sort((a, b) => data[b].n - data[a].n)[0];
+      const wrap = $("#hero-pos-wrap");
+      const draw = () => {
+        wrap.innerHTML = `<h2>📊 Как играют в Divine и Immortal</h2><div class="card">${heroPosHTML(h, data, p, byKey)}</div>`;
+        wrap.querySelectorAll("#hp-pos .chip").forEach(c => c.onclick = () => { haptic(); p = +c.dataset.p; draw(); });
+      };
+      draw();
+    }).catch(() => {});
     $("#hero-build").innerHTML = (!popRaw ? "" : `
       <details class="pro-items"><summary>📊 Что покупают про-игроки</summary>
         <h2>Ранняя игра</h2><div class="card">${itemsHTML(pickItems(pop.early_game_items, false))}</div>
