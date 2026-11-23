@@ -411,6 +411,29 @@
   .chan-card .ch-go:active { transform: scale(.96); }
   .chan-card .ch-x { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%;
     color: var(--hint); font-size: 13px; background: transparent; }
+
+  /* ---- экран «подпишись на канал» (приложение — для подписчиков) ---- */
+  #sub-gate { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; padding: 24px 22px; text-align: center; overflow-y: auto;
+    background: radial-gradient(420px 300px at 50% 18%, rgba(233,185,73,.16), transparent 70%), var(--bg, #07080c);
+    animation: fadeUp .3s ease both; }
+  #sub-gate .g-ico { width: 76px; height: 76px; border-radius: 22px; display: grid; place-items: center; font-size: 38px;
+    background: linear-gradient(135deg, var(--gold), #b8862b); box-shadow: 0 0 30px rgba(233,185,73,.35); }
+  #sub-gate h2 { margin: 6px 0 0; padding: 0; font: 800 21px/1.25 var(--display); color: var(--gold-2);
+    text-transform: none; letter-spacing: 0; }
+  #sub-gate h2::before, #sub-gate h2::after { display: none; }
+  #sub-gate p { margin: 0; max-width: 340px; font-size: 14px; line-height: 1.45; color: var(--hint); }
+  #sub-gate ul { margin: 0; padding: 0; list-style: none; max-width: 340px; text-align: left; font-size: 14px; line-height: 1.7; }
+  #sub-gate .g-btn { width: 100%; max-width: 340px; padding: 15px; border-radius: 14px; font: 800 15px/1 var(--display);
+    color: #111; background: linear-gradient(135deg, var(--gold-2), var(--gold)); }
+  #sub-gate .g-btn.alt { color: var(--gold-2); background: transparent; border: 1px solid rgba(233,185,73,.45); }
+  #sub-gate .g-btn:active { transform: scale(.97); }
+  #sub-gate .g-msg { min-height: 18px; font-size: 13px; color: var(--gold-2); }
+
+  /* ---- поделиться драфтом ---- */
+  .share-btn { display: block; width: 100%; margin: 12px 0 2px; padding: 13px; border-radius: 12px;
+    font: 800 14px/1 var(--display); color: var(--gold-2); background: transparent; border: 1px solid rgba(233,185,73,.45); }
+  .share-btn:active { transform: scale(.97); }
 </style>
 </head>
 <body>
@@ -654,6 +677,52 @@ document.addEventListener("click", e => {
   }
 });
 renderChannelCards();
+
+/* ---- приложение — для подписчиков канала.
+   Сервер (gate.py на VPS) проверяет подпись Telegram и спрашивает у Telegram, подписан ли человек.
+   Если сервер не ответил — пускаем (не ломаем приложение из-за нашего сбоя). Вне Telegram не проверяем. ---- */
+const GATE_URL = "https://148-135-202-134.sslip.io/api/check";
+async function subStatus() {
+  try {
+    const r = await fetchT(GATE_URL, 6000, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData: tg.initData }) });
+    if (!r.ok) return null;
+    return (await r.json()).ok;
+  } catch (e) { return null; }
+}
+function showGate(msg = "") {
+  let g = document.getElementById("sub-gate");
+  if (!g) {
+    g = document.createElement("div");
+    g.id = "sub-gate";
+    g.innerHTML = `<div class="g-ico">📢</div>
+      <h2>Подпишись на канал —<br>и приложение твоё</h2>
+      <p>Помощник драфта, билды и контрпики бесплатны для подписчиков нашего канала Dota 2 ProNews.</p>
+      <ul><li>📊 мета дня по Divine+ и про-сцене</li><li>🛠 билды про-игроков и контрпики</li><li>🏆 матч дня и сенсации турниров</li></ul>
+      <button class="g-btn" id="g-sub">📢 Подписаться на канал</button>
+      <button class="g-btn alt" id="g-check">✅ Я подписался</button>
+      <div class="g-msg"></div>`;
+    document.body.appendChild(g);
+    g.querySelector("#g-sub").onclick = () => { haptic(); tg.openTelegramLink(CHANNEL_URL); };
+    g.querySelector("#g-check").onclick = () => { haptic(); recheckSub(true); };
+  }
+  g.querySelector(".g-msg").textContent = msg;
+}
+function hideGate() {
+  const g = document.getElementById("sub-gate");
+  if (g) { g.remove(); try { tg.HapticFeedback.notificationOccurred("success"); } catch (e) {} }
+}
+async function recheckSub(byButton = false) {
+  if (byButton) showGate("Проверяю…");
+  const ok = await subStatus();
+  if (ok === false) showGate(byButton ? "Пока не вижу подписку — подпишись и нажми ещё раз 🙂" : "");
+  else hideGate();
+}
+if (tg && tg.initData) {
+  recheckSub();
+  // вернулся из канала — проверим сразу, без нажатия кнопки
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && document.getElementById("sub-gate")) recheckSub(); });
+}
 
 // fetch с ограничением по времени: OpenDota иногда не отвечает минутами — не ждём его вечно
 async function fetchT(url, ms, opts = {}) {
@@ -2216,6 +2285,15 @@ function renderDraft() {
 }
 
 let recsToken = 0;
+let shareText = "";
+const BOT_LINK = "https://t.me/dota2probuiderbot?startapp";
+document.addEventListener("click", e => {
+  if (!e.target.closest("#share-draft") || !shareText) return;
+  haptic();
+  const url = `https://t.me/share/url?url=${encodeURIComponent(BOT_LINK)}&text=${encodeURIComponent(shareText)}`;
+  tg && tg.openTelegramLink ? tg.openTelegramLink(url) : window.open(url, "_blank");
+});
+
 async function renderRecs(isRetry = false) {
   const token = ++recsToken;
   const box = $("#recs");
@@ -2339,6 +2417,13 @@ async function renderRecs(isRetry = false) {
     if (allies.length >= 2) {
       const missing = NEEDED_ROLES.filter(r => !allies.some(a => (HEROES[a].roles || []).includes(r)));
       if (missing.length) html += `<div class="warn">⚠️ В команде нет: <b>${missing.map(r => ROLE_RU[r].toLowerCase()).join(", ")}</b>. Учти это при пике.</div>`;
+    }
+    // 📤 поделиться советом с тимейтами — заодно приводит друзей в приложение
+    const best = top.slice(0, 3).map(r => r.h.localized_name);
+    if (best.length) {
+      shareText = (enemies.length ? `Против ${enemies.map(e => HEROES[e].localized_name).join(", ")}` : "Первый пик")
+        + ` на позицию ${draft.me + 1} советую: ${best.join(", ")} 🎯\nПодбор героя по драфту и билды про — в Dota 2 PROBUILDER:`;
+      html += `<button class="share-btn" id="share-draft">📤 Отправить совет тимейтам</button>`;
     }
     if (countersMissing) html += `<div class="warn">⚠️ Статистика «кто кого контрит» сейчас не загрузилась (сервер OpenDota не отвечает) — советую по мете и составу команды. Попробуй чуть позже.</div>`;
     if (synLate) html += `<div class="warn">⏳ Догружаю, кто с кем хорошо играет, — советы обновятся сами.</div>`;
