@@ -2008,7 +2008,7 @@ function heroPosHTML(h, data, p, byKey) {
   let html = chips;
   if (d.start && d.start.length) {
     const keys = d.start.flatMap(([k, q]) => Array(q).fill(k)).filter(k => byKey[k]);
-    const subs = Object.fromEntries(d.start.map(([k, , r]) => [k, `у ${pct(r)}`]));
+    const subs = Object.fromEntries(d.start.map(([k, , r]) => [k, `берут ${pct(r)}`]));
     html += `<div class="sub-st">🛒 Старт</div>${buildItemsHTML(keys, byKey, subs)}`;
   }
   if (d.boots && d.boots.length) {
@@ -2042,7 +2042,7 @@ function heroPosHTML(h, data, p, byKey) {
 function muHTML(rows) {
   return `<div class="mu">${rows.map(r => `<button class="mu-row" data-id="${r.h.id}">
     <img loading="lazy" src="${heroImg(r.h)}" alt=""><span class="nm">${esc(r.h.localized_name)}</span>
-    <span class="val ${wrClass(r.wr)}">${r.wr.toFixed(0)}%</span><span class="g">${r.g} игр</span></button>`).join("")}</div>`;
+    <span class="val ${wrClass(r.wr)}">${r.wr.toFixed(0)}%</span><span class="g">${gamesRu(r.g)}</span></button>`).join("")}</div>`;
 }
 
 function ago(ts) {
