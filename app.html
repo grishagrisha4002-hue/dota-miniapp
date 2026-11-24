@@ -430,6 +430,17 @@
   #sub-gate .g-btn:active { transform: scale(.97); }
   #sub-gate .g-msg { min-height: 18px; font-size: 13px; color: var(--gold-2); }
 
+  /* ---- профиль: MMR и последний матч ---- */
+  .prof-head .mmr { color: var(--gold-2); font-weight: 700; white-space: nowrap; }
+  .last-match { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; text-align: left; color: inherit; }
+  .last-match img { flex: none; width: 74px; height: 42px; border-radius: 8px; object-fit: cover; }
+  .last-match .lm-mid { flex: 1; min-width: 0; }
+  .last-match .lm-top { font-size: 14px; }
+  .last-match .lm-top span { margin-left: 4px; font-weight: 800; font-size: 12px; }
+  .last-match .lm-kda { margin-top: 2px; font: 800 16px/1.2 var(--display); }
+  .last-match .lm-sub { margin-top: 2px; font-size: 11.5px; line-height: 1.35; color: var(--hint); }
+  .last-match .lm-go { flex: none; font: 800 12px/1 var(--display); color: var(--gold-2); }
+
   /* ---- поделиться драфтом ---- */
   .share-btn { display: block; width: 100%; margin: 12px 0 2px; padding: 13px; border-radius: 12px;
     font: 800 14px/1 var(--display); color: var(--gold-2); background: transparent; border: 1px solid rgba(233,185,73,.45); }
@@ -989,13 +1000,14 @@ async function loadMy(force = false) {
   if (!id) { id = await cloudAcc(); if (id) lsSet("myAcc", id); }
   if (!id) { MY = null; return null; }
   const ttl = force ? 0 : 3 * 3600e3;
-  const [profile, wl, heroes] = await Promise.all([
+  const [profile, wl, heroes, recent] = await Promise.all([
     api(`/players/${id}`, ttl),
     api(`/players/${id}/wl?date=${MY_DAYS}`, ttl).catch(() => null),
-    api(`/players/${id}/heroes?date=${MY_DAYS}`, ttl).catch(() => [])]);
+    api(`/players/${id}/heroes?date=${MY_DAYS}`, ttl).catch(() => []),
+    api(`/players/${id}/recentMatches`, force ? 0 : 15 * 60e3).catch(() => [])]);
   const hs = {};
   for (const r of heroes || []) if (r.games > 0) hs[r.hero_id] = { g: r.games, w: r.win };
-  MY = { id, profile, wl, heroes: hs };
+  MY = { id, profile, wl, heroes: hs, last: (recent || [])[0] || null };
   return MY;
 }
 const myHero = id => (MY && MY.heroes[id]) || null;
@@ -1006,6 +1018,42 @@ const rankText = p => {
   if (!t) return "ранг скрыт или не откалиброван";
   return `${RANKS[Math.floor(t / 10)] || ""}${t % 10 && t < 80 ? " " + (t % 10) : ""}`;
 };
+// Точный MMR Valve никому не отдаёт (виден только самому игроку в клиенте) — показываем диапазон звезды медали:
+// Рекрут–Властелин по 154 MMR на звезду (Рекрут 1 = 0 … Властелин 5 = 4466), Божество по 200 (4620 … 5420), Титан с 5620.
+function mmrRange(t) {
+  if (!t) return "";
+  const medal = Math.floor(t / 10), star = Math.max(1, Math.min(5, t % 10 || 1));
+  if (medal >= 8) return "5620+";
+  if (medal === 7) { const lo = 4620 + (star - 1) * 200; return `${fmt(lo)}–${fmt(lo + 200)}`; }
+  const lo = ((medal - 1) * 5 + star - 1) * 154;
+  return `${fmt(lo)}–${fmt(lo + 154)}`;
+}
+const agoRu = sec => {
+  const m = Math.round((Date.now() / 1000 - sec) / 60);
+  if (m < 60) return `${Math.max(1, m)} мин. назад`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} ч. назад`;
+  const d = Math.round(h / 24);
+  return d === 1 ? "вчера" : `${d} дн. назад`;
+};
+function lastMatchHTML(m) {
+  if (!m || !HEROES[m.hero_id]) return "";
+  const h = HEROES[m.hero_id];
+  const win = (m.player_slot < 128) === m.radiant_win;
+  const dur = `${Math.floor(m.duration / 60)}:${String(m.duration % 60).padStart(2, "0")}`;
+  const mode = m.lobby_type === 7 ? "рейтинг" : m.game_mode === 23 ? "турбо" : "обычная";
+  return `<h2>Последний матч</h2>
+    <button class="card last-match" id="last-match" data-mid="${m.match_id}">
+      <img src="${heroImg(h)}" alt="">
+      <div class="lm-mid">
+        <div class="lm-top"><b>${esc(h.localized_name)}</b> <span class="${win ? "good" : "bad"}">${win ? "Победа" : "Поражение"}</span></div>
+        <div class="lm-kda">${m.kills} / ${m.deaths} / ${m.assists}</div>
+        <div class="lm-sub">${dur} · ${mode} · ${agoRu(m.start_time + m.duration)}</div>
+        <div class="lm-sub">${fmt(m.gold_per_min)} GPM · ${fmt(m.xp_per_min)} XPM · ${fmt(m.hero_damage)} урона · ${fmt(m.last_hits)} крипов</div>
+      </div>
+      <div class="lm-go">Разбор ›</div>
+    </button>`;
+}
 // Стартовый экран: позвать подключить профиль (или показать, что он подключён)
 function renderProfileCta() {
   const el = $("#prof-cta");
@@ -1052,8 +1100,10 @@ async function renderProfile(force = false) {
     const games = my.wl ? my.wl.win + my.wl.lose : 0;
     const list = Object.entries(my.heroes).filter(([hid]) => HEROES[hid]).sort((a, b) => b[1].g - a[1].g).slice(0, 12);
     box.innerHTML = `<div class="card prof-head"><img src="${esc(p.avatarfull || p.avatar || "")}" alt="">
-        <div><div class="nm">${esc(p.personaname || "Игрок")}</div><div class="rk">🏅 ${esc(rankText(my.profile))}</div>
+        <div><div class="nm">${esc(p.personaname || "Игрок")}</div><div class="rk">🏅 ${esc(rankText(my.profile))}${
+          !my.profile.leaderboard_rank && mmrRange(my.profile.rank_tier) ? ` · <span class="mmr">≈ ${mmrRange(my.profile.rank_tier)} MMR</span>` : ""}</div>
         <div class="wl">${games ? `за полгода: ${fmt(games)} игр, ${Math.round(my.wl.win / games * 100)}% побед` : "нет открытых матчей за полгода"}</div></div></div>
+      ${lastMatchHTML(my.last)}
       <h2>Мои герои</h2>
       <div class="card">${list.length ? list.map(([hid, s]) => `<button class="my-row" data-id="${hid}">
           <img loading="lazy" src="${heroImg(HEROES[hid])}" alt=""><span class="n">${esc(HEROES[hid].localized_name)}</span>
@@ -1065,6 +1115,12 @@ async function renderProfile(force = false) {
       <button class="prof-link" id="acc-refresh">🔄 Обновить сейчас</button>
       <button class="prof-link" id="acc-change">Сменить аккаунт</button>`;
     $("#acc-refresh").onclick = () => { haptic(); renderProfile(true); };
+    const lm = $("#last-match");
+    if (lm) lm.onclick = () => {
+      haptic();
+      const url = `https://stratz.com/matches/${lm.dataset.mid}`;
+      tg && tg.openLink ? tg.openLink(url) : window.open(url, "_blank");
+    };
     $("#acc-digest").onclick = () => {
       haptic();
       const url = `https://t.me/dota2probuiderbot?start=acc_${my.id}`;
